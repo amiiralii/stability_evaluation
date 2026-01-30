@@ -22,3 +22,6 @@
 
 - **Per dataset:** create a chart with performance and stability measures
 
+### Planning for Feb. 4th
+ - **Not Enough Data** --> Lunxia
+ - **Sensitivity to labels** --> Amirali
