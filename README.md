@@ -3,6 +3,8 @@
 
 | # | Potential Cause | Experiment | Results |
 |---:|---|---|---|
+| 0 | Instable domain | Maybe our domain is actually instable. | -- |
+|---:|---|---|---|
 | 1 | Not Enough Data | Build Trees with 90% of the data 20 times. Compare the stability and performance with trees built from 10% of the data. | TBD |
 | 2 | Sensitivity to labels | Build Trees with labels, based on different samplers (random, near, Xploit). | TBD |
 | 3 | Model Complexity 1 | Build Trees with different tree depths. | TBD |
