@@ -59,6 +59,6 @@ for acquisition in treatments:
     stability_metric[acquisition] = aggreement
 # print("Stability,", stability_metric)
 
-print("trt, performace, stability")
+print("trt, performance, stability")
 for trt in treatments:
-    print(f"{trt}, {performace_metric[trt]}, {stability_metric[trt]}")
+    print(f"{trt}, {performace_metric[trt]:.2f}, {stability_metric[trt]}")
