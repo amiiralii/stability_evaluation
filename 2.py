@@ -11,8 +11,10 @@ win  = lambda v: int(100*(1 - (v - b4.lo)/(b4.mu - b4.lo)))
 the.Check   = 10
 the.Budget  = 50
 
+treatments = ["near", "xploit", "xplor", "bore", "random"]
+
 performace_metric = {}
-for acquisition in ["near", "xploit", "xplor", "bore", "random"]:
+for acquisition in treatments:
     the.acq     = acquisition
     mse = 0
     for rand_seed in range(repeats):
@@ -29,7 +31,7 @@ for acquisition in ["near", "xploit", "xplor", "bore", "random"]:
         # print("Referenced Optimal:\t", win(min(disty(all_data, row) for row in holdout.rows)))
         mse += abs(ezr_performace - win(min(disty(all_data, row) for row in holdout.rows))) ** 2
     performace_metric[acquisition] = mse / repeats
-print("Performance =", performace_metric)
+# print("Performance =", performace_metric)
 
 
 all_data.rows = shuffle(all_data.rows)
@@ -39,7 +41,7 @@ the.Check   = 10
 the.Budget  = 50
 
 stability_metric = {}
-for acquisition in ["near", "xploit", "xplor", "bore", "random"]:
+for acquisition in treatments:
     the.acq     = acquisition
     trees = []
     for rand_seed in range(repeats):
@@ -52,7 +54,11 @@ for acquisition in ["near", "xploit", "xplor", "bore", "random"]:
     aggreement = 0
     for row in test.rows:
         preds = adds( [treeLeaf(tree,row).mu for tree in trees] )
-        if preds.sd / preds.mu < 0.15:  aggreement += 1
+        if preds.sd / preds.mu < 0.2:  aggreement += 1
 
     stability_metric[acquisition] = aggreement
-print("Stability =", stability_metric)
+# print("Stability,", stability_metric)
+
+print("trt, performace, stability")
+for trt in treatments:
+    print(f"{trt}, {performace_metric[trt]}, {stability_metric[trt]}")
