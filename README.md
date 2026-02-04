@@ -5,7 +5,7 @@
 |---:|---|---|---|
 | 0 | Instable domain | Maybe our domain is actually instable. | -- |
 | 1 | Not Enough Data | Build Trees with 90% of the data 20 times. Compare the stability and performance with trees built from 10% of the data. | TBD |
-| 2 | Sensitivity to labels | Build Trees with labels, based on different samplers (random, near, Xploit). | [Perf.](https://github.com/amiiralii/stability_evaluation/blob/main/results/2/aggregates/performance.png) & [Stab.](https://github.com/amiiralii/stability_evaluation/blob/main/results/2/aggregates/stability.png) |
+| 2 | Sensitivity to labels | Build Trees with labels, based on different samplers (random, near, Xploit). | [Perf.](https://github.com/amiiralii/stability_evaluation/blob/main/results/2/aggregates/performance.png) & [Stab.](https://github.com/amiiralii/stability_evaluation/blob/main/results/2/aggregates/stability.png) & [Sheet](https://docs.google.com/spreadsheets/d/1_Zm4IXEnXuRufCse8m9clsMzehSezMkINGUjxNLcX1c/edit?usp=sharing) |
 | 3 | Model Complexity 1 | Build Trees with different tree depths. | TBD |
 | 4 | Model Complexity 2 | Build Trees with binary splits or multiple splits. | TBD |
 | 5 | Landscape 1 | Compare the Stability of Trees with incremental clustering methods. | TBD |
