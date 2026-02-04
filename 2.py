@@ -30,7 +30,7 @@ for acquisition in treatments:
         # print("Suggested row win:\t", ezr_performace)
         # print("Referenced Optimal:\t", win(min(disty(all_data, row) for row in holdout.rows)))
         mse += abs(ezr_performace - win(min(disty(all_data, row) for row in holdout.rows))) ** 2
-    performace_metric[acquisition] = mse / repeats
+    performace_metric[acquisition] = (mse / repeats) ** 0.5
 # print("Performance =", performace_metric)
 
 
