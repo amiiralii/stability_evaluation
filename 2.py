@@ -11,8 +11,10 @@ win  = lambda v: int(100*(1 - (v - b4.lo)/(b4.mu - b4.lo)))
 the.Check   = 10
 the.Budget  = 50
 
+treatments = ["near", "xploit", "xplor", "bore", "random"]
+
 performace_metric = {}
-for acquisition in ["near", "xploit", "xplor", "bore", "random"]:
+for acquisition in treatments:
     the.acq     = acquisition
     mse = 0
     for rand_seed in range(repeats):
@@ -28,8 +30,8 @@ for acquisition in ["near", "xploit", "xplor", "bore", "random"]:
         # print("Suggested row win:\t", ezr_performace)
         # print("Referenced Optimal:\t", win(min(disty(all_data, row) for row in holdout.rows)))
         mse += abs(ezr_performace - win(min(disty(all_data, row) for row in holdout.rows))) ** 2
-    performace_metric[acquisition] = mse / repeats
-print("Performance =", performace_metric)
+    performace_metric[acquisition] = (mse / repeats) ** 0.5
+# print("Performance =", performace_metric)
 
 
 all_data.rows = shuffle(all_data.rows)
@@ -39,7 +41,7 @@ the.Check   = 10
 the.Budget  = 50
 
 stability_metric = {}
-for acquisition in ["near", "xploit", "xplor", "bore", "random"]:
+for acquisition in treatments:
     the.acq     = acquisition
     trees = []
     for rand_seed in range(repeats):
@@ -52,7 +54,17 @@ for acquisition in ["near", "xploit", "xplor", "bore", "random"]:
     aggreement = 0
     for row in test.rows:
         preds = adds( [treeLeaf(tree,row).mu for tree in trees] )
-        if preds.sd / preds.mu < 0.15:  aggreement += 1
+        # Avoid division by zero or near-zero mean; use an absolute sd threshold when mean is close to zero
+        if abs(preds.mu) > 1e-6:
+            if preds.sd / abs(preds.mu) < 0.2:
+                aggreement += 1
+        else:
+            if preds.sd < 0.2:  # You may want to adjust 0.2 to an appropriate sd threshold for your data
+                aggreement += 1
 
     stability_metric[acquisition] = aggreement
-print("Stability =", stability_metric)
+# print("Stability,", stability_metric)
+
+print("trt, performance, stability")
+for trt in treatments:
+    print(f"{trt}, {performace_metric[trt]:.2f}, {stability_metric[trt]}")

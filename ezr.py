@@ -213,6 +213,8 @@ def like(i:o, v:Any, prior=0) -> float :
            / (sum(i.has.values())+the.m+1e-32))
     return math.log(max(tmp, 1e-32))
   else:
+    ## Next Line added to resolve cases where i.sd == 0
+    if i.sd == 0: return 0 if v == i.mu else 1E-32
     var = i.sd * i.sd + 1E-32
     log_nom = -1 * (v - i.mu) ** 2 / (2 * var)
     log_denom = 0.5 * math.log(2 * math.pi * var)
@@ -277,6 +279,8 @@ def treeSelects(row:Row, op:str, at:int, y:Atom) -> bool:
   if op == "<="          : return x <= y
   if op == "=="          : return x == y
   if op == ">"           : return x > y
+  ## Adding Next line to support binary splits
+  if op == "!="          : return x != y
 
 def Tree(data, rows=None, Y=None, Klass=Num, how=None):
   "Create tree from list of lists"
@@ -298,14 +302,36 @@ def treeCuts(col, rows, Y:callable, Klass:callable):
   xys = sorted([(r[col.at], Y(r)) for r in rows if r[col.at] != "?"])
   return (_symCuts if col.it is Sym else _numCuts)(col.at,xys,Y,Klass)
 
-def _symCuts(at,xys,Y,Klass) -> (float, list[Op]):
-  "Cuts for symbolic column."
-  d = {}
-  for x, y in xys:
-    d[x] = d.get(x) or Klass()
-    add(d[x], y)
-  here = sum(ys.n/len(xys) * div(ys) for ys in d.values())
-  return here, [("==", at, x) for x in d]
+# def _symCuts(at,xys,Y,Klass) -> (float, list[Op]):
+#   "Cuts for symbolic column."
+#   d = {}
+#   for x, y in xys:
+#     d[x] = d.get(x) or Klass()
+#     add(d[x], y)
+#   print(d)
+#   input()
+#   here = sum(ys.n/len(xys) * div(ys) for ys in d.values())
+#   return here, [("==", at, x) for x in d]
+
+## Re-writing _symCuts to return binary splits
+def _symCuts(at, xys, Y, Klass) -> (float, list[Op]):
+    "Cuts for symbolic column (binary split)."
+    unique_vals = set(x for x, _ in xys)
+    spread, cuts = big, []
+    for val in unique_vals:
+        left = Klass()   # x == val
+        right = Klass()  # x != val
+        
+        for x, y in xys:
+          if x == val:  add(left, y)
+          else:   add(right, y)
+        # Only consider if both sides have enough items
+        if left.n >= the.leaf and right.n >= the.leaf:
+            now = (left.n * div(left) + right.n * div(right)) / (left.n + right.n)
+            if now < spread:
+                spread = now
+                cuts = [("==", at, val), ("!=", at, val)]
+    return spread, cuts
 
 def _numCuts(at,xys,Y,Klass) -> (float, list[Op]):
   "Cuts for numeric columns."
