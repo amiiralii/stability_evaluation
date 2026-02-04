@@ -54,7 +54,13 @@ for acquisition in treatments:
     aggreement = 0
     for row in test.rows:
         preds = adds( [treeLeaf(tree,row).mu for tree in trees] )
-        if preds.sd / preds.mu < 0.2:  aggreement += 1
+        # Avoid division by zero or near-zero mean; use an absolute sd threshold when mean is close to zero
+        if abs(preds.mu) > 1e-6:
+            if preds.sd / abs(preds.mu) < 0.2:
+                aggreement += 1
+        else:
+            if preds.sd < 0.2:  # You may want to adjust 0.2 to an appropriate sd threshold for your data
+                aggreement += 1
 
     stability_metric[acquisition] = aggreement
 # print("Stability,", stability_metric)
