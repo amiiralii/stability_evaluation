@@ -68,17 +68,16 @@ def plot_sta_perf(percentages, stability_results, performance_results, file_name
     print(f"\nChart saved as {out_file}")
     plt.close()
 
-def run_sta_perf_check(repeats=20, n_samples=100):
+def run_sta_perf_check(repeats=20, n_samples=100, out_dir="./outputs/1/"):
     """
     Runs both stability and performance metrics.
     """
     # Initialize dataset
-    dataset = Data(csv(the.file))
+    dataset = Data(csv(ezr.the.file))
     
-    # Output setup
-    out_dir = "sta_perf_outputs/"
+    # Output setu
     os.makedirs(out_dir, exist_ok=True)
-    base_name = os.path.basename(the.file).split('.')[0]
+    base_name = os.path.basename(ezr.the.file).split('.')[0]
     out_path = os.path.join(out_dir, f"{base_name}_sta_perf.png")
     
     # Column validation
@@ -86,7 +85,7 @@ def run_sta_perf_check(repeats=20, n_samples=100):
         if dataset.cols.klass:
             dataset.cols.y = [dataset.cols.klass]
         else:
-            print(f"Error: No objective columns found in {the.file}")
+            print(f"Error: No objective columns found in {ezr.the.file}")
             return
 
     # Win function setup (based on full dataset)
@@ -98,7 +97,7 @@ def run_sta_perf_check(repeats=20, n_samples=100):
     # Global Optima Info
     best_row_global = distysort(dataset, dataset.rows)[0]
     best_disty_global = ezr.disty(dataset, best_row_global)
-    print(f"Dataset: {the.file} | Rows: {len(dataset.rows)}")
+    print(f"Dataset: {ezr.the.file} | Rows: {len(dataset.rows)}")
     print(f"Global Best Disty: {best_disty_global:.4f} | Win Score: {win(best_disty_global):.2f}")
 
     # Split for Experiment
@@ -110,8 +109,8 @@ def run_sta_perf_check(repeats=20, n_samples=100):
     performance_results = []
     
     for pct in percentages:
-        the.Budget = max(the.Any, round(len(budget_source) * pct))
-        print(f"Budget: {int(pct*100)}% ({the.Budget})", end=" ... ", flush=True)
+        ezr.the.Budget = max(ezr.the.Any, round(len(budget_source) * pct))
+        print(f"Budget: {int(pct*100)}% ({ezr.the.Budget})", end=" ... ", flush=True)
         
         trees = []
         errors = []
@@ -156,15 +155,23 @@ def run_sta_perf_check(repeats=20, n_samples=100):
         
         print(f"Stab: {stability_results[-1]:.2f}, Perf: {performance_results[-1]:.2f}")
 
+    # Save results to CSV
+    csv_path = os.path.join(out_dir, f"{base_name}_sta_perf_record.csv")
+    with open(csv_path, 'w') as f:
+        f.write("budget_%,stability,performance\n")
+        for p, s, perf in zip(percentages, stability_results, performance_results):
+            f.write(f"{int(p*100)},{s:.4f},{perf:.4f}\n")
+    print(f"Results saved to {csv_path}")
+
     # Plot
-    plot_sta_perf(percentages, stability_results, performance_results, base_name, out_path)
+    # plot_sta_perf(percentages, stability_results, performance_results, base_name, out_path)
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
-        the.file = sys.argv[1]
+        ezr.the.file = sys.argv[1]
     else:
         # Default
-        the.file = "data/optimize/systems/PostgreSQL.csv"
+        ezr.the.file = "data/optimize/systems/PostgreSQL.csv"
         
     run_sta_perf_check()
 
