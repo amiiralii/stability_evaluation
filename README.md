@@ -33,3 +33,4 @@
 - Amirali
   - Experiment 2 : Add Statistics on performance and stability (Scott-knot)
   - Experiment 4 : Start Running it
+  - Look into results and find out potential bugs(0 performance, 0 stability)

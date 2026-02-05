@@ -1,5 +1,5 @@
 from ezr import *
-
+from stats import *
 
 file_directory = sys.argv[1] if len(sys.argv) > 1 else "data/optimize/misc/auto93.csv"
 repeats = 20
@@ -14,9 +14,11 @@ the.Budget  = 50
 treatments = ["near", "xploit", "xplor", "bore", "random"]
 
 performace_metric = {}
+error_dist = {}
 for acquisition in treatments:
     the.acq     = acquisition
     mse = 0
+    error = []
     for rand_seed in range(repeats):
         the.seed    = rand_seed
         random.seed(the.seed)
@@ -29,10 +31,18 @@ for acquisition in treatments:
         ezr_performace = win( sorted([disty(all_data, row) for _, row in top_rows])[0] )
         # print("Suggested row win:\t", ezr_performace)
         # print("Referenced Optimal:\t", win(min(disty(all_data, row) for row in holdout.rows)))
-        mse += abs(ezr_performace - win(min(disty(all_data, row) for row in holdout.rows))) ** 2
+        referenced_optima = win(min(disty(all_data, row) for row in holdout.rows))
+        mse += abs(ezr_performace - referenced_optima) ** 2
+        error.append(referenced_optima - ezr_performace)
+    error_dist[acquisition] = error
     performace_metric[acquisition] = (mse / repeats) ** 0.5
 # print("Performance =", performace_metric)
-
+# print(error_dist)
+# sample = {
+#     "A" : [1,2,3,4,6,6],
+#     "B" : [60,64,30,40,60,60]
+# }
+# print(top(error_dist, Ks=0.9, Delta="medium"))
 
 all_data.rows = shuffle(all_data.rows)
 tests_size = 100
@@ -53,7 +63,8 @@ for acquisition in treatments:
 
     aggreement = 0
     for row in test.rows:
-        preds = adds( [treeLeaf(tree,row).mu for tree in trees] )
+        preds = adds( [win(treeLeaf(tree,row).mu) for tree in trees] )
+
         # Avoid division by zero or near-zero mean; use an absolute sd threshold when mean is close to zero
         if abs(preds.mu) > 1e-6:
             if preds.sd / abs(preds.mu) < 0.2:

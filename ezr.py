@@ -215,6 +215,7 @@ def like(i:o, v:Any, prior=0) -> float :
   else:
     ## Next Line added to resolve cases where i.sd == 0
     if i.sd == 0: return 0 if v == i.mu else 1E-32
+    
     var = i.sd * i.sd + 1E-32
     log_nom = -1 * (v - i.mu) ** 2 / (2 * var)
     log_denom = 0.5 * math.log(2 * math.pi * var)
@@ -279,6 +280,7 @@ def treeSelects(row:Row, op:str, at:int, y:Atom) -> bool:
   if op == "<="          : return x <= y
   if op == "=="          : return x == y
   if op == ">"           : return x > y
+
   ## Adding Next line to support binary splits
   if op == "!="          : return x != y
 
@@ -319,19 +321,14 @@ def _symCuts(at, xys, Y, Klass) -> (float, list[Op]):
     unique_vals = set(x for x, _ in xys)
     spread, cuts = big, []
     for val in unique_vals:
-        left = Klass()   # x == val
-        right = Klass()  # x != val
-        
-        for x, y in xys:
-          if x == val:  add(left, y)
-          else:   add(right, y)
-        # Only consider if both sides have enough items
+        left, right = Klass(), Klass()
+        [add(left if x == val else right, y) for x, y in xys]
         if left.n >= the.leaf and right.n >= the.leaf:
             now = (left.n * div(left) + right.n * div(right)) / (left.n + right.n)
             if now < spread:
-                spread = now
-                cuts = [("==", at, val), ("!=", at, val)]
+                spread, cuts = now, [("==", at, val), ("!=", at, val)]      
     return spread, cuts
+
 
 def _numCuts(at,xys,Y,Klass) -> (float, list[Op]):
   "Cuts for numeric columns."
