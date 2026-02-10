@@ -1,3 +1,4 @@
+from matplotlib.pyplot import yscale
 from ezr import *
 from stats import *
 
@@ -5,15 +6,17 @@ file_directory = sys.argv[1] if len(sys.argv) > 1 else "data/optimize/misc/auto9
 repeats = 20
 
 all_data = Data(csv(file_directory))
+ys      = [disty(all_data,row) for row in all_data.rows]
+b4      = adds(ys)
+win     = lambda v: int(100*(1 - (v - b4.lo)/(b4.mu - b4.lo)))
+b4_wins = adds([win(k) for k in ys])
 
-b4   = adds(disty(all_data,row) for row in all_data.rows)
-win  = lambda v: int(100*(1 - (v - b4.lo)/(b4.mu - b4.lo)))
 the.Check   = 10
 the.Budget  = 50
 
 treatments = ["near", "xploit", "xplor", "bore", "random"]
 
-performace_metric = {}
+performace_error = {}
 error_dist = {}
 for acquisition in treatments:
     the.acq     = acquisition
@@ -35,14 +38,9 @@ for acquisition in treatments:
         mse += abs(ezr_performace - referenced_optima) ** 2
         error.append(referenced_optima - ezr_performace)
     error_dist[acquisition] = error
-    performace_metric[acquisition] = (mse / repeats) ** 0.5
-# print("Performance =", performace_metric)
-# print(error_dist)
-# sample = {
-#     "A" : [1,2,3,4,6,6],
-#     "B" : [60,64,30,40,60,60]
-# }
-# print(top(error_dist, Ks=0.9, Delta="medium"))
+    performace_error[acquisition] = (mse / repeats) ** 0.5
+
+best_performances = top(error_dist, Ks=0.9, Delta="medium")
 
 all_data.rows = shuffle(all_data.rows)
 tests_size = 100
@@ -50,7 +48,8 @@ test, train = clone(all_data, all_data.rows[:tests_size]), clone(all_data, all_d
 the.Check   = 10
 the.Budget  = 50
 
-stability_metric = {}
+stability_aggreement = {}
+stability_comp = [{acq:0 for acq in treatments} for _ in range(100)]
 for acquisition in treatments:
     the.acq     = acquisition
     trees = []
@@ -62,20 +61,22 @@ for acquisition in treatments:
         trees.append(tree)
 
     aggreement = 0
-    for row in test.rows:
-        preds = adds( [win(treeLeaf(tree,row).mu) for tree in trees] )
+    for idx, row in enumerate(test.rows):
+        outputs = [win(treeLeaf(tree,row).mu) for tree in trees]
+        preds = adds( outputs )
+        stability_comp[idx][acquisition] = preds.sd
+        if preds.sd < 0.35 * b4_wins.sd:
+            aggreement += 1
 
-        # Avoid division by zero or near-zero mean; use an absolute sd threshold when mean is close to zero
-        if abs(preds.mu) > 1e-6:
-            if preds.sd / abs(preds.mu) < 0.2:
-                aggreement += 1
-        else:
-            if preds.sd < 0.2:  # You may want to adjust 0.2 to an appropriate sd threshold for your data
-                aggreement += 1
-
-    stability_metric[acquisition] = aggreement
+    stability_aggreement[acquisition] = aggreement
 # print("Stability,", stability_metric)
+best_stability = {acq:0 for acq in treatments}
+for row_stability in stability_comp:
+    bests_in_row = top({k:[v] for k,v in row_stability.items()}, Ks=0.9, Delta="medium")
+    # print(bests_in_row, row_stability)
+    for m in bests_in_row:
+        best_stability[m] += 1
 
-print("trt, performance, stability")
+print("trt, performance_error, stability_aggreement, best_performance, best_stability")
 for trt in treatments:
-    print(f"{trt}, {performace_metric[trt]:.2f}, {stability_metric[trt]}")
+    print(f"{trt}, {performace_error[trt]:.2f}, {stability_aggreement[trt]}, {1 if trt in best_performances else 0}, {best_stability[trt]}")
