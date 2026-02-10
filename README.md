@@ -16,8 +16,29 @@
 
 ### Measures
 
-- **Stability Measure:** Consistency of predicted performance across 100 random points (in what portion of those random points do Trees have agreement)
-- **Performance Measure:** MSE of the suggested optimal points from different Trees, to the actual optimal (optionally normalized)
+### 📏 **Evaluation Metrics**
+
+
+#### 🟦 Stability Metrics
+Measures the consistency of model predictions across multiple runs and test samples.
+
+| Metric         | Description  |
+|----------------|--------------|
+| **Agreement**  | Out of 100 randomly selected test points, counts how many times all 20 trees for a given treatment make consistent predictions. <br><sup>(Consistency is defined as the standard deviation (SD) of predictions being below a threshold—measuring stability independent of competition.)</sup> |
+| **Stability Comparison** | For each test point, indicates how often each treatment produces the *most stable* predictions (i.e., lowest SD) compared to the others. |
+
+---
+
+
+#### 🟩 Performance Metrics
+Measures how accurately different models identify the optimal solutions.
+
+| Metric     | Description  |
+|------------|--------------|
+| **Error**  | Calculates RMSE between the model’s recommended best solution and the actual optimal found on the holdout set (with half the data used for training). |
+| **Performance Comparison** | Tallies for each dataset how often a model finds a significantly better (i.e., lower error) solution compared to other models. |
+
+---
 
 ### Charts
 
