@@ -14,29 +14,29 @@
 | 8 | Causality 1 | Apply confounder filtering to see if it helps trees. | TBD |
 | 9 | Causality 2 | Compare the stability of trees with corr splits and the ones with causal splits. | TBD |
 
-### Measures
+---
 
-### 📏 **Evaluation Metrics**
+## **Evaluation Metrics**
 
 
-#### 🟦 Stability Metrics
-Measures the consistency of model predictions across multiple runs and test samples.
+### 🟦 Stability Metrics
+Measures the consistency of model predictions across 20 trees for each treatment and 100 randomly selected test samples. In this measurement, we don't care about the performance at all. 
 
 | Metric         | Description  |
 |----------------|--------------|
-| **Agreement**  | Out of 100 randomly selected test points, counts how many times all 20 trees for a given treatment make consistent predictions. <br><sup>(Consistency is defined as the standard deviation (SD) of predictions being below a threshold—measuring stability independent of competition.)</sup> |
-| **Stability Comparison** | For each test point, indicates how often each treatment produces the *most stable* predictions (i.e., lowest SD) compared to the others. |
+| **Agreement** | Out of 100 randomly selected test points, how many times do all 20 trees for a given treatment make consistent predictions? <br><sup>( Sd of predictions are lower than a given threshhold. Threshhold = 0.35 * b4.sd )</sup> |
+| **Comparison** | How often each treatment produces *statistically more stable* predictions compared to the others. |
 
 ---
 
 
-#### 🟩 Performance Metrics
-Measures how accurately different models identify the optimal solutions.
+### 🟩 Performance Metrics
+Measures how accurately different models identify the optimal solutions. We split the data into two equal halves, train the models on one, and perform the optimization task on the other. 
 
 | Metric     | Description  |
 |------------|--------------|
-| **Error**  | Calculates RMSE between the model’s recommended best solution and the actual optimal found on the holdout set (with half the data used for training). |
-| **Performance Comparison** | Tallies for each dataset how often a model finds a significantly better (i.e., lower error) solution compared to other models. |
+| **Error**  | Calculates RMSE between the model’s recommended best solution and the referenced optimal found on the holdout set. |
+| **Comparison** | How often a model finds a *statistically better solution* compared to other models. |
 
 ---
 
