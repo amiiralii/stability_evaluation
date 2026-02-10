@@ -1,6 +1,6 @@
-trt, performance, stability
-near, 34.28, 100
-xploit, 37.70, 96
-xplor, 38.90, 89
-bore, 36.17, 90
-random, 42.98, 91
+trt, performance_error, stability_aggreement, best_performance, best_stability
+near, 34.28, 0, 1, 57
+xploit, 37.70, 0, 1, 19
+xplor, 36.92, 0, 1, 6
+bore, 36.24, 0, 1, 11
+random, 42.98, 0, 0, 7

@@ -43,7 +43,7 @@ for acquisition in treatments:
 best_performances = top(error_dist, Ks=0.9, Delta="medium")
 
 all_data.rows = shuffle(all_data.rows)
-tests_size = 100
+tests_size = min(100, int(len(all_data.rows) * 0.3))
 test, train = clone(all_data, all_data.rows[:tests_size]), clone(all_data, all_data.rows[tests_size:])
 the.Check   = 10
 the.Budget  = 50
@@ -68,7 +68,7 @@ for acquisition in treatments:
         if preds.sd < 0.35 * b4_wins.sd:
             aggreement += 1
 
-    stability_aggreement[acquisition] = aggreement
+    stability_aggreement[acquisition] = (aggreement * 100) // tests_size
 # print("Stability,", stability_metric)
 best_stability = {acq:0 for acq in treatments}
 for row_stability in stability_comp:
