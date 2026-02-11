@@ -6,7 +6,7 @@
 | 0 | Instable domain | Maybe our domain is actually instable. | -- |
 | 1 | Not Enough Data | Build Trees with 90% of the data 20 times. Compare the stability and performance with trees built from 10% of the data. | [sheet](https://docs.google.com/spreadsheets/d/1QwbnlBbzZGor8VxppxGtOTyznE6Vc2d_uHY9XoZ4xs4/edit?usp=sharing) |
 | 2 | Sensitivity to labels | Build Trees with labels, based on different samplers (random, near, Xploit). | [sheet](https://docs.google.com/spreadsheets/d/1_Zm4IXEnXuRufCse8m9clsMzehSezMkINGUjxNLcX1c/edit?usp=sharing) |
-| 3 | Model Complexity 1 | Build Trees with different tree depths. | TBD |
+| 3 | Model Complexity 1 | Build Trees with different tree depths. | [sheet](https://docs.google.com/spreadsheets/d/1fOnsTLJJRyzxNXbkhFF-OGm2qLv34Yt7YtqzSV_mt8s/edit?usp=sharing) |
 | 4 | Model Complexity 2 | Build Trees with binary splits or multiple splits. | TBD |
 | 5 | Landscape 1 | Compare the Stability of Trees with incremental clustering methods. | TBD |
 | 6 | Landscape 2 | Comparing stability through different datasets with different d2h distributions. | TBD |
