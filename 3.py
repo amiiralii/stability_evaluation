@@ -12,13 +12,14 @@ b4_wins = adds([win(k) for k in ys])
 
 the.Check   = 10
 the.Budget  = 50
+the.acq     = "near"
 
-treatments = ["near", "xploit", "xplor", "bore", "random"]
+treatments = [1,3,5,7,9]
 
 performace_error = {}
 error_dist = {}
-for acquisition in treatments:
-    the.acq     = acquisition
+for leaf in treatments:
+    the.leaf     = leaf
     mse = 0
     error = []
     for rand_seed in range(repeats):
@@ -27,7 +28,7 @@ for acquisition in treatments:
         shuffled_rows = random.sample(all_data.rows, len(all_data.rows))
         half = int(0.5 * len(all_data.rows))
         train, holdout = clone(all_data, shuffled_rows[:half]), clone(all_data, shuffled_rows[half:])
-        labels = likely(train) if acquisition != "random" else train.rows[: the.Budget]
+        labels = likely(train)
         tree   = Tree(clone(train, labels))
         top_rows = sorted( [(treeLeaf(tree, row).mu, row) for row in holdout.rows], key=lambda x: x[0])[:the.Check]
         ezr_performace = win( sorted([disty(all_data, row) for _, row in top_rows])[0] )
@@ -36,8 +37,8 @@ for acquisition in treatments:
         referenced_optima = win(min(disty(all_data, row) for row in holdout.rows))
         mse += abs(ezr_performace - referenced_optima) ** 2
         error.append(referenced_optima - ezr_performace)
-    error_dist[acquisition] = error
-    performace_error[acquisition] = (mse / repeats) ** 0.5
+    error_dist[leaf] = error
+    performace_error[leaf] = (mse / repeats) ** 0.5
 
 best_performances = top(error_dist, Ks=0.9, Delta="medium")
 
@@ -46,11 +47,12 @@ tests_size = min(100, int(len(all_data.rows) * 0.3))
 test, train = clone(all_data, all_data.rows[:tests_size]), clone(all_data, all_data.rows[tests_size:])
 the.Check   = 10
 the.Budget  = 50
+the.acq     = "near"
 
 stability_aggreement = {}
 stability_comp = [{acq:0 for acq in treatments} for _ in range(100)]
-for acquisition in treatments:
-    the.acq     = acquisition
+for leaf in treatments:
+    the.leaf     = leaf
     trees = []
     for rand_seed in range(repeats):
         the.seed    = rand_seed
@@ -63,11 +65,11 @@ for acquisition in treatments:
     for idx, row in enumerate(test.rows):
         outputs = [win(treeLeaf(tree,row).mu) for tree in trees]
         preds = adds( outputs )
-        stability_comp[idx][acquisition] = preds.sd
+        stability_comp[idx][leaf] = preds.sd
         if preds.sd < 0.35 * b4_wins.sd:
             aggreement += 1
 
-    stability_aggreement[acquisition] = (aggreement * 100) // tests_size
+    stability_aggreement[leaf] = (aggreement * 100) // tests_size
 # print("Stability,", stability_metric)
 best_stability = {acq:0 for acq in treatments}
 for row_stability in stability_comp:
