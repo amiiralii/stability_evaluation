@@ -55,4 +55,5 @@ Measures how accurately different models identify the optimal solutions. We spli
   - Experiment 5 : Coding a clustering method, to use instead of Tree (comparing label + tree with label + clustering)
   - Experiment 7 : Coding Gini index instead of Log in EZR's div() function
   - Experiment 1 : Adding Summary of charts
+  - Reading about stability in SE, and start working on litreture review
   
