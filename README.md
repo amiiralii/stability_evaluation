@@ -47,12 +47,12 @@ Measures how accurately different models identify the optimal solutions. We spli
 
 ### Planning for Feb. 18th
 - Lunxiao
-  - Experiment 1 : Adding Summary of charts
+  - Experiment 1 : Adding a Summary of charts
+  - Experiment 5 : Coding a clustering method, to use instead of Tree (comparing label + tree with label + clustering)
 - Amirali
   - Experiment 2 : Adding "Adopt"
-- Things to do in general
   - Experiment 4 : Coding multiple splits into EZR Tree
-  - Experiment 5 : Coding a clustering method, to use instead of Tree (comparing label + tree with label + clustering)
+- Things to do in general
   - Experiment 7 : Coding Gini index instead of Log in EZR's div() function
   - Experiment 1 : Adding Summary of charts
   - Reading about stability in SE, and start working on litreture review
