@@ -2,5 +2,6 @@ trt, performance_error, stability_aggreement, best_performance, best_stability
 near, 18.33, 54, 1, 98
 xploit, 54.85, 0, 0, 1
 xplor, 63.85, 0, 0, 0
+adapt, 59.21, 0, 0, 1
 bore, 54.00, 0, 0, 0
 random, 33.69, 0, 0, 1

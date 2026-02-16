@@ -13,7 +13,7 @@ b4_wins = adds([win(k) for k in ys])
 the.Check   = 10
 the.Budget  = 50
 
-treatments = ["near", "xploit", "xplor", "bore", "random"]
+treatments = ["near", "xploit", "xplor", "adapt", "bore", "random"]
 
 performace_error = {}
 error_dist = {}
