@@ -1,21 +1,24 @@
 """
-5.py — K-Means Stability evaluation across budget levels.
+5.1.py — K-Means vs Tree: Stability & Performance comparison.
 
-Compares stability of K-Means clustering vs Trees (experiment 1.py).
+Runs both K-Means and ezr Trees under identical conditions
+(same splits, same seeds, fixed budget = 50) so they can be
+directly compared.
 
-For each budget:
-  1. Split data 50/50 into train / test-pool.
-  2. Sample 100 test rows from test-pool.
-  3. Build 20 K-Means models, each from `budget` rows sampled from train.
-     - Use distKpp for centroid initialization, then run Lloyd's iterations
-       with ezr's distx (handles mixed types).
-  4. For each test row, find its nearest centroid in each model,
-     compute disty of that centroid -> win score.
-     20 models -> 20 win scores per test row -> compute sd.
-  5. Stability check: sd < 0.35 * b4_wins.sd.
+Treatments: kmeans, tree
 
-Output: one CSV per dataset under results/5/{dataset}.csv
-  Columns: trt, stability_agreement, best_stability
+Part 1 — Performance (20 train/holdout splits per treatment):
+  K-Means: sample budget rows -> build K-Means -> nearest centroid prediction.
+  Tree:    likely(train) -> build Tree -> treeLeaf prediction.
+  For each holdout row, pick top-Check -> best win -> error vs true best.
+
+Part 2 — Stability (single train/test split, 20 models per treatment):
+  Build 20 models (different seeds).
+  For each test row, 20 predictions -> sd.
+  sd < 0.35 * b4_wins.sd -> stable.
+
+Output: one CSV per dataset under results/5.1/{dataset}.csv
+  Columns: trt, performance_error, stability_agreement
 """
 from ezr import *
 from stats import *
@@ -23,8 +26,8 @@ import sys
 import random
 import os
 
-BUDGET_NUMS = [10, 20, 50, 100, 200]
 LLOYD_ITERS = 20      # max iterations for Lloyd's algorithm
+TREATMENTS  = ["kmeans", "tree"]
 
 
 def kmeans(data, rows, k=None, max_iter=LLOYD_ITERS):
@@ -61,14 +64,12 @@ def kmeans(data, rows, k=None, max_iter=LLOYD_ITERS):
             if not cluster:
                 new_centroids.append(centroids[ci])  # keep old centroid
                 continue
-            # Medoid: the row in the cluster closest to all others
             best_row = min(
                 cluster,
                 key=lambda r: sum(distx(data, r, other) for other in cluster)
             )
             new_centroids.append(best_row)
 
-        # Check convergence (centroids unchanged)
         if all(c1 is c2 for c1, c2 in zip(centroids, new_centroids)):
             break
         centroids = new_centroids
@@ -81,7 +82,7 @@ def predict_nearest(data, centroids, row):
     return min(centroids, key=lambda c: distx(data, row, c))
 
 
-def run(file_directory, out_dir="results/5", repeats=20):
+def run(file_directory, out_dir="results/5.1", repeats=20):
     all_data = Data(csv(file_directory))
     if not all_data.cols.y:
         if all_data.cols.klass:
@@ -96,9 +97,52 @@ def run(file_directory, out_dir="results/5", repeats=20):
     win     = lambda v: int(100 * (1 - (v - b4.lo) / (b4.mu - b4.lo)))
     b4_wins = adds([win(k) for k in ys])
 
+    budget = 50
+    the.Budget = budget
+
     # =========================================================
-    # Split: 50/50 train / test-pool, sample 100 test rows
+    # Part 1: Performance
     # =========================================================
+    performance_error = {}
+
+    for trt in TREATMENTS:
+        mse = 0
+        for rand_seed in range(repeats):
+            random.seed(rand_seed)
+            shuffled_rows = random.sample(all_data.rows, len(all_data.rows))
+            half = int(0.5 * len(all_data.rows))
+            train   = clone(all_data, shuffled_rows[:half])
+            holdout = clone(all_data, shuffled_rows[half:])
+
+            if trt == "kmeans":
+                sampled = random.sample(train.rows, min(budget, len(train.rows)))
+                k = max(2, budget // the.leaf)
+                centroids = kmeans(clone(all_data, sampled), sampled, k=k)
+                # Score holdout rows by nearest centroid
+                scored = []
+                for row in holdout.rows:
+                    nearest = predict_nearest(all_data, centroids, row)
+                    scored.append((disty(all_data, nearest), row))
+                top_rows = sorted(scored, key=lambda x: x[0])[:the.Check]
+            else:  # tree
+                the.seed = rand_seed
+                labels = likely(train) if budget < len(train.rows) else train.rows[:budget]
+                tree   = Tree(clone(train, labels))
+                top_rows = sorted(
+                    [(treeLeaf(tree, row).mu, row) for row in holdout.rows],
+                    key=lambda x: x[0]
+                )[:the.Check]
+
+            ezr_perf = win(sorted([disty(all_data, row) for _, row in top_rows])[0])
+            ref_opt  = win(min(disty(all_data, row) for row in holdout.rows))
+            mse += abs(ezr_perf - ref_opt) ** 2
+
+        performance_error[trt] = (mse / repeats) ** 0.5
+
+    # =========================================================
+    # Part 2: Stability
+    # =========================================================
+    # Single train/test split, shared across treatments.
     all_data.rows = shuffle(all_data.rows)
     half       = len(all_data.rows) // 2
     train_rows = all_data.rows[:half]
@@ -109,47 +153,46 @@ def run(file_directory, out_dir="results/5", repeats=20):
     train = clone(all_data, train_rows)
     test  = clone(all_data, test_rows)
 
-    # =========================================================
-    # Stability via K-Means
-    # =========================================================
     stability_agreement = {}
-    # For each test row, store the sd under each budget
-    stability_comp = [{budget: 0 for budget in BUDGET_NUMS} for _ in range(len(test.rows))]
 
-    for budget in BUDGET_NUMS:
-        k = max(2, budget // the.leaf)  # clusters = budget / leaf size
+    for trt in TREATMENTS:
+        if trt == "kmeans":
+            k = max(2, budget // the.leaf)
+            models = []
+            for rand_seed in range(repeats):
+                random.seed(rand_seed)
+                sampled = random.sample(train.rows, min(budget, len(train.rows)))
+                centroids = kmeans(clone(all_data, sampled), sampled, k=k)
+                models.append(centroids)
 
-        # Build `repeats` K-Means models, each from a different sample
-        models = []  # list of centroid lists
-        for rand_seed in range(repeats):
-            random.seed(rand_seed)
-            sampled = random.sample(train.rows, min(budget, len(train.rows)))
-            sample_data = clone(all_data, sampled)
-            centroids = kmeans(sample_data, sampled, k=k)
-            models.append(centroids)
+            agreement = 0
+            for row in test.rows:
+                win_scores = []
+                for centroids in models:
+                    nearest = predict_nearest(all_data, centroids, row)
+                    d = disty(all_data, nearest)
+                    win_scores.append(win(d))
+                preds = adds(win_scores)
+                if preds.sd < 0.35 * b4_wins.sd:
+                    agreement += 1
 
-        # For each test row, get 20 predictions -> win scores -> sd
-        agreement = 0
-        for idx, row in enumerate(test.rows):
-            win_scores = []
-            for centroids in models:
-                nearest = predict_nearest(all_data, centroids, row)
-                d = disty(all_data, nearest)
-                win_scores.append(win(d))
-            preds = adds(win_scores)
-            stability_comp[idx][budget] = preds.sd
-            if preds.sd < 0.35 * b4_wins.sd:
-                agreement += 1
+        else:  # tree
+            trees = []
+            for rand_seed in range(repeats):
+                the.seed = rand_seed
+                random.seed(the.seed)
+                labels = likely(train)
+                tree   = Tree(clone(train, labels))
+                trees.append(tree)
 
-        stability_agreement[budget] = agreement * 100 // tests_size
-        print(f"  Budget {budget}: agreement = {stability_agreement[budget]}%")
+            agreement = 0
+            for row in test.rows:
+                outputs = [win(treeLeaf(tree, row).mu) for tree in trees]
+                preds   = adds(outputs)
+                if preds.sd < 0.35 * b4_wins.sd:
+                    agreement += 1
 
-    # Per-row stability winners via top()
-    best_stability = {budget: 0 for budget in BUDGET_NUMS}
-    for row_stability in stability_comp:
-        bests_in_row = top({k: [v] for k, v in row_stability.items()}, Ks=0.9, Delta="medium")
-        for m in bests_in_row:
-            best_stability[m] += 1
+        stability_agreement[trt] = agreement * 100 // tests_size
 
     # =========================================================
     # Output
@@ -158,15 +201,11 @@ def run(file_directory, out_dir="results/5", repeats=20):
     base_name = os.path.basename(file_directory).split('.')[0]
     out_path  = os.path.join(out_dir, f"{base_name}.csv")
 
-    header = "trt, stability_agreement, best_stability"
+    header = "trt, performance_error, stability_agreement"
     print(header)
     lines = [header]
-    for budget in BUDGET_NUMS:
-        line = (
-            f"{budget}, "
-            f"{stability_agreement[budget]}, "
-            f"{best_stability[budget]}"
-        )
+    for trt in TREATMENTS:
+        line = f"{trt}, {performance_error[trt]:.2f}, {stability_agreement[trt]}"
         print(line)
         lines.append(line)
 
@@ -178,5 +217,5 @@ def run(file_directory, out_dir="results/5", repeats=20):
 
 if __name__ == "__main__":
     file_directory = sys.argv[1] if len(sys.argv) > 1 else "data/optimize/misc/auto93.csv"
-    output_dir     = sys.argv[2] if len(sys.argv) > 2 else "results/5"
+    output_dir     = sys.argv[2] if len(sys.argv) > 2 else "results/5.1"
     run(file_directory, output_dir)
