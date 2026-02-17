@@ -8,7 +8,7 @@
 | 2 | Sensitivity to labels | Build Trees with labels, based on different samplers (random, near, Xploit). | [sheet](https://docs.google.com/spreadsheets/d/1_Zm4IXEnXuRufCse8m9clsMzehSezMkINGUjxNLcX1c/edit?usp=sharing) |
 | 3 | Model Complexity 1 | Build Trees with different tree depths. | [sheet](https://docs.google.com/spreadsheets/d/1fOnsTLJJRyzxNXbkhFF-OGm2qLv34Yt7YtqzSV_mt8s/edit?usp=sharing) |
 | 4 | Model Complexity 2 | Build Trees with binary splits or multiple splits. | TBD |
-| 5 | Landscape 1 | Compare the Stability of Trees with incremental clustering methods. | https://docs.google.com/spreadsheets/d/1_7vIlcXhXdVfYhEKzGAHLbo9wbgV-QuVnf3RBY9kZ2c/edit?usp=sharing
+| 5 | Landscape 1 | Compare the Stability of Trees with incremental clustering methods. | [sheet](https://docs.google.com/spreadsheets/d/1_7vIlcXhXdVfYhEKzGAHLbo9wbgV-QuVnf3RBY9kZ2c/edit?usp=sharing) |
 | 6 | Landscape 2 | Comparing stability through different datasets with different d2h distributions. | TBD |
 | 7 | Numerical methods | Compare stability through trees with Log and without Log splits. | TBD |
 | 8 | Causality 1 | Apply confounder filtering to see if it helps trees. | TBD |
