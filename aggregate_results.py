@@ -82,8 +82,8 @@ def aggregate_results(input_dir: str, output_dir: str = None):
 
 if __name__ == "__main__":
     # Default paths
-    input_dir = "results/3"
-    output_dir = "results/3/aggregates"
+    input_dir = "results/2"
+    output_dir = "results/2/aggregates"
     
     aggregate_results(input_dir, output_dir)
 
