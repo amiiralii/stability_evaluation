@@ -1,2 +1,3 @@
-performance_error, stability_agreement
-33.44, 6
+trt, performance_error, stability_agreement
+kmeans, 33.44, 4
+tree, 26.09, 8
