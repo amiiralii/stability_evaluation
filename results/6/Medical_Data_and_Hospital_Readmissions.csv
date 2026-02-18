@@ -1,0 +1,6 @@
+Performance, 0.00, [0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0-0]
+Stability, 0, 99.03
+Dataset, Medical_Data_and_Hospital_Readmissions
+Wins, 0.05, 109.09
+Dist8, 54
+Quant, 100, 100, 100, -119, -119

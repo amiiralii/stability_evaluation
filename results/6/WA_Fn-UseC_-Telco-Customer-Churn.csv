@@ -1,0 +1,6 @@
+Performance, 1.20, [2-1-1-0-1-1-1-2-0-1-2-1-1-1-1-1-0-2-1-1]
+Stability, 23, 29.07
+Dataset, WA_Fn-UseC_-Telco-Customer-Churn
+Wins, 0.03, 64.93
+Dist8, 15
+Quant, 100, 60, -2, -47, -155

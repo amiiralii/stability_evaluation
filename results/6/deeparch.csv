@@ -1,0 +1,6 @@
+Performance, 0.95, [0-1-1-1-1-0-1-1-0-3-0-1-0-0-0-1-0-0-1-0]
+Stability, 38, 39.73
+Dataset, deeparch
+Wins, -0.13, 69.13
+Dist8, 7
+Quant, 100, 45, 16, -25, -205
