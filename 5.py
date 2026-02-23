@@ -1,23 +1,36 @@
 """
-5.1.py — K-Means vs Tree: Stability & Performance comparison.
+5.2.py — K-Means vs CURE vs Tree: Stability & Performance comparison.
 
-Runs both K-Means and ezr Trees under identical conditions
-(same splits, same seeds, fixed budget = 50) so they can be
-directly compared.
+Extends 5.1.py by adding CURE (Clustering Using REpresentatives) as a
+third treatment. All three run under identical conditions (same splits,
+same seeds, fixed budget = 50).
 
-Treatments: kmeans, tree
+CURE algorithm:
+  1. Initialise clusters via K-Means++ seeding + Lloyd assignment.
+  2. For each cluster, pick `CURE_N_REPR` representative points
+     using farthest-first selection.
+  3. Compute adaptive shrink per cluster:
+       shrink_i = 1 - (intra_cluster_spread_i / global_spread)
+     Tight clusters (small spread) get high shrink; loose clusters get low shrink.
+  4. Shrink each representative toward the cluster mean by shrink_i.
+  5. Predict: assign a row to the cluster whose closest shrunken
+     representative is nearest; return the actual member of that cluster
+     nearest to the query row.
+
+Treatments: kmeans, cure, ezr
 
 Part 1 — Performance (20 train/holdout splits per treatment):
-  K-Means: sample budget rows -> build K-Means -> nearest centroid prediction.
-  Tree:    likely(train) -> build Tree -> treeLeaf prediction.
-  For each holdout row, pick top-Check -> best win -> error vs true best.
+  K-Means: sample budget rows -> K-Means -> nearest medoid prediction.
+  CURE:    sample budget rows -> CURE    -> nearest representative prediction.
+  Tree:    likely(train)      -> Tree    -> treeLeaf prediction.
+  Pick top-Check holdout rows -> best win -> RMSE vs true holdout best.
 
-Part 2 — Stability (single train/test split, 20 models per treatment):
+Part 2 — Stability (single shared train/test split, 20 models per treatment):
   Build 20 models (different seeds).
   For each test row, 20 predictions -> sd.
   sd < 0.35 * b4_wins.sd -> stable.
 
-Output: one CSV per dataset under results/5.1/{dataset}.csv
+Output: one CSV per dataset under results/5.2/{dataset}.csv
   Columns: trt, performance_error, stability_agreement
 """
 from ezr import *
@@ -26,43 +39,42 @@ import sys
 import random
 import os
 
-LLOYD_ITERS = 20      # max iterations for Lloyd's algorithm
-TREATMENTS  = ["kmeans", "tree"]
+LLOYD_ITERS = 20       # max Lloyd iterations (shared by K-Means & CURE)
+TREATMENTS  = ["kmeans", "cure", "ezr"]
 
+# CURE hyper-parameters
+CURE_N_REPR = 5        # representative points per cluster
+# shrink is now computed adaptively per cluster (no global CURE_SHRINK constant)
+
+
+# =============================================================================
+# K-Means (medoid update, same as 5.1.py)
+# =============================================================================
 
 def kmeans(data, rows, k=None, max_iter=LLOYD_ITERS):
     """K-Means clustering using ezr's distx for mixed-type distance.
 
-    Args:
-        data:     ezr Data object (provides column metadata for distx).
-        rows:     list of rows to cluster.
-        k:        number of clusters.
-        max_iter: maximum Lloyd iterations.
-
     Returns:
-        centroids: list of k rows (actual data rows acting as medoids).
+        centroids: list of k medoid rows.
     """
     if k is None:
         k = max(2, len(rows) // the.leaf)
     if len(rows) <= k:
         return rows[:]
 
-    # K-Means++ initialization via ezr's distKpp
     centroids = distKpp(data, rows=rows, k=k)
 
     for _ in range(max_iter):
-        # Assign each row to nearest centroid
         clusters = [[] for _ in range(k)]
         for row in rows:
-            dists = [distx(data, row, c) for c in centroids]
+            dists   = [distx(data, row, c) for c in centroids]
             nearest = dists.index(min(dists))
             clusters[nearest].append(row)
 
-        # Update centroids: pick the medoid (row with min total dist to cluster)
         new_centroids = []
         for ci, cluster in enumerate(clusters):
             if not cluster:
-                new_centroids.append(centroids[ci])  # keep old centroid
+                new_centroids.append(centroids[ci])
                 continue
             best_row = min(
                 cluster,
@@ -78,11 +90,194 @@ def kmeans(data, rows, k=None, max_iter=LLOYD_ITERS):
 
 
 def predict_nearest(data, centroids, row):
-    """Find the nearest centroid to `row` and return it."""
+    """Return the nearest medoid/centroid to `row`."""
     return min(centroids, key=lambda c: distx(data, row, c))
 
 
-def run(file_directory, out_dir="results/5.1", repeats=20):
+# =============================================================================
+# CURE helpers
+# =============================================================================
+
+def _cluster_mean(data, cluster):
+    """Numeric-aware mean row for a cluster.
+
+    Numeric cols are averaged; symbolic cols use the most-common value.
+    """
+    n_cols = len(cluster[0])
+    mean_row = []
+    for col_idx in range(n_cols):
+        col_obj = data.cols.all[col_idx] if col_idx < len(data.cols.all) else None
+        vals    = [r[col_idx] for r in cluster if r[col_idx] != "?"]
+        if vals and col_obj and hasattr(col_obj, "mu"):
+            mean_row.append(sum(vals) / len(vals))
+        else:
+            mean_row.append(max(set(vals), key=vals.count) if vals else "?")
+    return mean_row
+
+
+def _farthest_first_repr(data, cluster, mean_row, n_repr):
+    """Pick `n_repr` points from `cluster` via farthest-first traversal,
+    seeded from the point farthest from the cluster mean."""
+    if len(cluster) <= n_repr: # if cluster is too small, just return all rows as representatives
+        return list(cluster)
+    reprs = [max(cluster, key=lambda r: distx(data, r, mean_row))]
+    while len(reprs) < n_repr:
+        next_r = max(
+            cluster,
+            key=lambda r: min(distx(data, r, rep) for rep in reprs)
+        )
+        reprs.append(next_r)
+    return reprs
+
+
+def _cluster_spread(data, cluster, mean_row):
+    """Mean pairwise distance from each cluster member to the cluster mean.
+
+    Used as a proxy for intra-cluster spread.
+    """
+    if not cluster:
+        return 0.0
+    return sum(distx(data, r, mean_row) for r in cluster) / len(cluster)
+
+
+def _adaptive_shrink(intra_spread, global_spread, lo=0.05, hi=0.95):
+    """Compute per-cluster shrink factor from spread ratio.
+
+    shrink_i = 1 - (intra_spread_i / global_spread)
+
+    Tight cluster (small intra_spread) -> high shrink (safe to pull toward mean).
+    Loose cluster (large intra_spread) -> low shrink (keep reps spread out).
+
+    Clamped to [lo, hi] to avoid degenerate values.
+    """
+    if global_spread < 1e-12:
+        return hi
+    ratio = intra_spread / global_spread
+    return max(lo, min(hi, 1.0 - ratio))
+
+
+def _shrink(data, reprs, mean_row, shrink):
+    """Shrink each representative toward the cluster mean.
+
+    new_val = val + shrink * (mean_val - val)  for numeric columns.
+    Symbolic columns are left unchanged.
+    """
+    shrunk = []
+    for rep in reprs:
+        new_rep = []
+        for col_idx, (rv, mv) in enumerate(zip(rep, mean_row)):
+            col_obj = data.cols.all[col_idx] if col_idx < len(data.cols.all) else None
+            if col_obj and hasattr(col_obj, "mu") and rv != "?" and mv != "?": # numeric column
+                new_rep.append(rv + shrink * (mv - rv))
+            else: # symbolic column or missing value
+                new_rep.append(rv)
+        shrunk.append(new_rep)
+    return shrunk
+
+
+# =============================================================================
+# CURE
+# =============================================================================
+
+def cure(data, rows, k=None, n_repr=CURE_N_REPR,
+         max_iter=LLOYD_ITERS):
+    """CURE clustering with adaptive per-cluster shrink.
+
+    shrink_i = 1 - (intra_cluster_spread_i / global_spread)
+
+    Returns:
+        list of (shrunken_reprs, cluster_rows) tuples — one per cluster.
+    """
+    if k is None:
+        k = max(2, len(rows) // the.leaf)
+    if len(rows) <= k:
+        return [([r], [r]) for r in rows]
+
+    # Global spread: mean distance of every row to the overall mean
+    global_mean   = _cluster_mean(data, rows)
+    global_spread = _cluster_spread(data, rows, global_mean)
+
+    # Initialise via K-Means++ seeding
+    centroids = distKpp(data, rows=rows, k=k)
+
+    for _ in range(max_iter):
+        # Assign rows to nearest centroid
+        clusters = [[] for _ in range(k)]
+        for row in rows:
+            dists   = [distx(data, row, c) for c in centroids]
+            nearest = dists.index(min(dists))
+            clusters[nearest].append(row)
+
+        # Build shrunken representatives with adaptive shrink per cluster
+        cluster_reprs = []
+        new_centroids = []
+        for ci, cluster in enumerate(clusters):
+            if not cluster:
+                cluster_reprs.append([centroids[ci]])
+                new_centroids.append(centroids[ci])
+                continue
+            mean_row     = _cluster_mean(data, cluster)
+            intra_spread = _cluster_spread(data, cluster, mean_row)
+            shrink       = _adaptive_shrink(intra_spread, global_spread)
+            reprs        = _farthest_first_repr(data, cluster, mean_row, n_repr)
+            shrunk       = _shrink(data, reprs, mean_row, shrink)
+            cluster_reprs.append(shrunk)
+            new_centroids.append(mean_row)
+
+        # Re-assign rows using shrunken representatives
+        new_clusters = [[] for _ in range(k)]
+        for row in rows:
+            best_ci, best_dist = 0, float("inf")
+            for ci, reprs in enumerate(cluster_reprs):
+                d = min(distx(data, row, rep) for rep in reprs)
+                if d < best_dist:
+                    best_dist = d
+                    best_ci   = ci
+            new_clusters[best_ci].append(row)
+
+        # Convergence check
+        if all(
+            set(id(r) for r in c1) == set(id(r) for r in c2)
+            for c1, c2 in zip(clusters, new_clusters)
+        ):
+            break
+        clusters  = new_clusters
+        centroids = new_centroids
+
+    # Build final representatives with adaptive shrink
+    result = []
+    for ci, cluster in enumerate(clusters):
+        if not cluster:
+            result.append(([centroids[ci]], []))
+            continue
+        mean_row     = _cluster_mean(data, cluster)
+        intra_spread = _cluster_spread(data, cluster, mean_row)
+        shrink       = _adaptive_shrink(intra_spread, global_spread)
+        reprs        = _farthest_first_repr(data, cluster, mean_row, n_repr)
+        shrunk       = _shrink(data, reprs, mean_row, shrink)
+        result.append((shrunk, cluster))
+    return result
+
+
+def predict_cure(data, cure_clusters, row):
+    """Return the actual cluster member whose cluster has the nearest
+    shrunken representative to `row`."""
+    best_dist, best_cluster = float("inf"), None
+    for reprs, cluster in cure_clusters:
+        d = min(distx(data, row, rep) for rep in reprs)
+        if d < best_dist:
+            best_dist    = d
+            best_cluster = cluster
+    if not best_cluster:
+        return row
+    return min(best_cluster, key=lambda r: distx(data, row, r))
+
+
+# =============================================================================
+# Main experiment
+# =============================================================================
+
+def run(file_directory, out_dir="results/5.2", repeats=20):
     all_data = Data(csv(file_directory))
     if not all_data.cols.y:
         if all_data.cols.klass:
@@ -97,37 +292,50 @@ def run(file_directory, out_dir="results/5.1", repeats=20):
     win     = lambda v: int(100 * (1 - (v - b4.lo) / (b4.mu - b4.lo)))
     b4_wins = adds([win(k) for k in ys])
 
-    budget = 50
+    budget     = 50
     the.Budget = budget
+    the.Check  = 10
+    k          = max(2, budget // the.leaf)
 
     # =========================================================
-    # Part 1: Performance
+    # Part 1: Performance (20 train/holdout splits per treatment)
     # =========================================================
+    # For each repeat, likely(train) selects the labeled 50 rows.
+    # All three treatments use those SAME rows for a fair comparison.
     performance_error = {}
 
     for trt in TREATMENTS:
         mse = 0
         for rand_seed in range(repeats):
             random.seed(rand_seed)
+            the.seed      = rand_seed
             shuffled_rows = random.sample(all_data.rows, len(all_data.rows))
-            half = int(0.5 * len(all_data.rows))
+            half    = int(0.5 * len(all_data.rows))
             train   = clone(all_data, shuffled_rows[:half])
             holdout = clone(all_data, shuffled_rows[half:])
 
+            # All treatments use the same labeled rows chosen by likely()
+            labels  = likely(train)   # active-learning selection, budget=50
+            sampled = labels[:budget]  # the rows seen by all methods
+
             if trt == "kmeans":
-                sampled = random.sample(train.rows, min(budget, len(train.rows)))
-                k = max(2, budget // the.leaf)
                 centroids = kmeans(clone(all_data, sampled), sampled, k=k)
-                # Score holdout rows by nearest centroid
-                scored = []
-                for row in holdout.rows:
-                    nearest = predict_nearest(all_data, centroids, row)
-                    scored.append((disty(all_data, nearest), row))
+                scored    = [
+                    (disty(all_data, predict_nearest(all_data, centroids, row)), row)
+                    for row in holdout.rows
+                ]
                 top_rows = sorted(scored, key=lambda x: x[0])[:the.Check]
-            else:  # tree
-                the.seed = rand_seed
-                labels = likely(train) if budget < len(train.rows) else train.rows[:budget]
-                tree   = Tree(clone(train, labels))
+
+            elif trt == "cure":
+                cure_clusters = cure(clone(all_data, sampled), sampled, k=k)
+                scored        = [
+                    (disty(all_data, predict_cure(all_data, cure_clusters, row)), row)
+                    for row in holdout.rows
+                ]
+                top_rows = sorted(scored, key=lambda x: x[0])[:the.Check]
+
+            else:  # ezr tree
+                tree     = Tree(clone(train, labels))
                 top_rows = sorted(
                     [(treeLeaf(tree, row).mu, row) for row in holdout.rows],
                     key=lambda x: x[0]
@@ -135,14 +343,15 @@ def run(file_directory, out_dir="results/5.1", repeats=20):
 
             ezr_perf = win(sorted([disty(all_data, row) for _, row in top_rows])[0])
             ref_opt  = win(min(disty(all_data, row) for row in holdout.rows))
-            mse += abs(ezr_perf - ref_opt) ** 2
+            mse     += abs(ezr_perf - ref_opt) ** 2
 
         performance_error[trt] = (mse / repeats) ** 0.5
 
     # =========================================================
-    # Part 2: Stability
+    # Part 2: Stability (single shared train/test split, Option 1)
     # =========================================================
-    # Single train/test split, shared across treatments.
+    # Each seed calls likely(train) once; all three treatments
+    # build their model from those same labeled rows.
     all_data.rows = shuffle(all_data.rows)
     half       = len(all_data.rows) // 2
     train_rows = all_data.rows[:half]
@@ -153,44 +362,42 @@ def run(file_directory, out_dir="results/5.1", repeats=20):
     train = clone(all_data, train_rows)
     test  = clone(all_data, test_rows)
 
+    # Pre-compute one set of models per seed (shared labels across treatments)
+    kmeans_models = []
+    cure_models   = []
+    tree_models   = []
+
+    for rand_seed in range(repeats):
+        the.seed = rand_seed
+        random.seed(rand_seed)
+        labels  = likely(train)          # active-learning selection, budget=50
+        sampled = labels[:budget]        # same rows for all three treatments
+
+        kmeans_models.append(kmeans(clone(all_data, sampled), sampled, k=k))
+        cure_models.append(cure(clone(all_data, sampled), sampled, k=k))
+        tree_models.append(Tree(clone(train, labels)))
+
     stability_agreement = {}
 
     for trt in TREATMENTS:
-        if trt == "kmeans":
-            k = max(2, budget // the.leaf)
-            models = []
-            for rand_seed in range(repeats):
-                random.seed(rand_seed)
-                sampled = random.sample(train.rows, min(budget, len(train.rows)))
-                centroids = kmeans(clone(all_data, sampled), sampled, k=k)
-                models.append(centroids)
+        agreement = 0
 
-            agreement = 0
-            for row in test.rows:
-                win_scores = []
-                for centroids in models:
-                    nearest = predict_nearest(all_data, centroids, row)
-                    d = disty(all_data, nearest)
-                    win_scores.append(win(d))
-                preds = adds(win_scores)
-                if preds.sd < 0.35 * b4_wins.sd:
-                    agreement += 1
+        for row in test.rows:
+            if trt == "kmeans":
+                win_scores = [
+                    win(disty(all_data, predict_nearest(all_data, centroids, row)))
+                    for centroids in kmeans_models
+                ]
+            elif trt == "cure":
+                win_scores = [
+                    win(disty(all_data, predict_cure(all_data, cure_clusters, row)))
+                    for cure_clusters in cure_models
+                ]
+            else:  # ezr
+                win_scores = [win(treeLeaf(tree, row).mu) for tree in tree_models]
 
-        else:  # tree
-            trees = []
-            for rand_seed in range(repeats):
-                the.seed = rand_seed
-                random.seed(the.seed)
-                labels = likely(train)
-                tree   = Tree(clone(train, labels))
-                trees.append(tree)
-
-            agreement = 0
-            for row in test.rows:
-                outputs = [win(treeLeaf(tree, row).mu) for tree in trees]
-                preds   = adds(outputs)
-                if preds.sd < 0.35 * b4_wins.sd:
-                    agreement += 1
+            if adds(win_scores).sd < 0.35 * b4_wins.sd:
+                agreement += 1
 
         stability_agreement[trt] = agreement * 100 // tests_size
 
@@ -217,5 +424,5 @@ def run(file_directory, out_dir="results/5.1", repeats=20):
 
 if __name__ == "__main__":
     file_directory = sys.argv[1] if len(sys.argv) > 1 else "data/optimize/misc/auto93.csv"
-    output_dir     = sys.argv[2] if len(sys.argv) > 2 else "results/5.1"
+    output_dir     = sys.argv[2] if len(sys.argv) > 2 else "results/5.2"
     run(file_directory, output_dir)
