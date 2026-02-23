@@ -1,28 +1,36 @@
 """
-5.2.py — K-Means vs CURE vs Tree: Stability & Performance comparison.
+5.3.py — K-Means vs CURE vs HDBSCAN vs Tree: Stability & Performance comparison.
 
-Extends 5.1.py by adding CURE (Clustering Using REpresentatives) as a
-third treatment. All three run under identical conditions (same splits,
-same seeds, fixed budget = 50).
+Extends 5.2.py by adding HDBSCAN (Hierarchical DBSCAN) as a fourth treatment
+alongside K-Means, CURE, and ezr Tree. All four run under identical conditions
+(same splits, same seeds, fixed budget = 50).
 
 CURE algorithm:
   1. Initialise clusters via K-Means++ seeding + Lloyd assignment.
-  2. For each cluster, pick `CURE_N_REPR` representative points
-     using farthest-first selection.
-  3. Compute adaptive shrink per cluster:
-       shrink_i = 1 - (intra_cluster_spread_i / global_spread)
-     Tight clusters (small spread) get high shrink; loose clusters get low shrink.
+  2. For each cluster, pick CURE_N_REPR representative points via farthest-first.
+  3. Adaptive per-cluster shrink: shrink_i = 1 - (intra_spread_i / global_spread).
   4. Shrink each representative toward the cluster mean by shrink_i.
-  5. Predict: assign a row to the cluster whose closest shrunken
-     representative is nearest; return the actual member of that cluster
-     nearest to the query row.
+  5. Predict: nearest shrunken representative -> nearest actual cluster member.
 
-Treatments: kmeans, cure, ezr
+HDBSCAN algorithm (via the `hdbscan` library):
+  1. Fit HDBSCAN on the budget rows using a numeric projection of each row
+     (missing values replaced by column mean/mode).
+  2. Points labelled -1 (noise) are reassigned to the nearest non-noise
+     cluster member using distx, so every test row has a valid prediction.
+  3. Predict: assign test row to its nearest cluster (by distx) and return
+     the actual cluster member nearest to the query row.
+
+Granularity knob (shared across K-Means, CURE, HDBSCAN):
+  k / min_cluster_size = budget // the.leaf     (mirrors tree leaf-size)
+  HDBSCAN min_samples  = max(1, min_cluster_size // 2)
+
+Fair comparison (Option 1):
+  For every seed, likely(train) selects `budget` labeled rows.
+  All four treatments use those SAME rows.
+
+Treatments: kmeans, cure, hdbscan, ezr
 
 Part 1 — Performance (20 train/holdout splits per treatment):
-  K-Means: sample budget rows -> K-Means -> nearest medoid prediction.
-  CURE:    sample budget rows -> CURE    -> nearest representative prediction.
-  Tree:    likely(train)      -> Tree    -> treeLeaf prediction.
   Pick top-Check holdout rows -> best win -> RMSE vs true holdout best.
 
 Part 2 — Stability (single shared train/test split, 20 models per treatment):
@@ -30,7 +38,7 @@ Part 2 — Stability (single shared train/test split, 20 models per treatment):
   For each test row, 20 predictions -> sd.
   sd < 0.35 * b4_wins.sd -> stable.
 
-Output: one CSV per dataset under results/5.2/{dataset}.csv
+Output: one CSV per dataset under results/5.3/{dataset}.csv
   Columns: trt, performance_error, stability_agreement
 """
 from ezr import *
@@ -39,16 +47,24 @@ import sys
 import random
 import os
 
-LLOYD_ITERS = 20       # max Lloyd iterations (shared by K-Means & CURE)
-TREATMENTS  = ["kmeans", "cure", "ezr"]
+try:
+    import hdbscan as hdbscan_lib
+    import numpy as np
+    HDBSCAN_AVAILABLE = True
+except ImportError:
+    HDBSCAN_AVAILABLE = False
+    print("WARNING: hdbscan or numpy not installed. Run: pip install hdbscan numpy")
+
+LLOYD_ITERS = 20       # max Lloyd iterations for K-Means and CURE
+TREATMENTS  = ["kmeans", "cure", "hdbscan", "ezr"]
 
 # CURE hyper-parameters
 CURE_N_REPR = 5        # representative points per cluster
-# shrink is now computed adaptively per cluster (no global CURE_SHRINK constant)
+# shrink is computed adaptively per cluster (no global constant)
 
 
 # =============================================================================
-# K-Means (medoid update, same as 5.1.py)
+# K-Means (medoid update, same as 5.2.py)
 # =============================================================================
 
 def kmeans(data, rows, k=None, max_iter=LLOYD_ITERS):
@@ -118,7 +134,7 @@ def _cluster_mean(data, cluster):
 def _farthest_first_repr(data, cluster, mean_row, n_repr):
     """Pick `n_repr` points from `cluster` via farthest-first traversal,
     seeded from the point farthest from the cluster mean."""
-    if len(cluster) <= n_repr: # if cluster is too small, just return all rows as representatives
+    if len(cluster) <= n_repr:
         return list(cluster)
     reprs = [max(cluster, key=lambda r: distx(data, r, mean_row))]
     while len(reprs) < n_repr:
@@ -131,59 +147,40 @@ def _farthest_first_repr(data, cluster, mean_row, n_repr):
 
 
 def _cluster_spread(data, cluster, mean_row):
-    """Mean pairwise distance from each cluster member to the cluster mean.
-
-    Used as a proxy for intra-cluster spread.
-    """
+    """Mean distance from each cluster member to the cluster mean."""
     if not cluster:
         return 0.0
     return sum(distx(data, r, mean_row) for r in cluster) / len(cluster)
 
 
 def _adaptive_shrink(intra_spread, global_spread, lo=0.05, hi=0.95):
-    """Compute per-cluster shrink factor from spread ratio.
+    """Per-cluster shrink factor: shrink_i = 1 - (intra_spread_i / global_spread).
 
-    shrink_i = 1 - (intra_spread_i / global_spread)
-
-    Tight cluster (small intra_spread) -> high shrink (safe to pull toward mean).
-    Loose cluster (large intra_spread) -> low shrink (keep reps spread out).
-
-    Clamped to [lo, hi] to avoid degenerate values.
+    Tight cluster -> high shrink; loose cluster -> low shrink.
+    Clamped to [lo, hi].
     """
     if global_spread < 1e-12:
         return hi
-    ratio = intra_spread / global_spread
-    return max(lo, min(hi, 1.0 - ratio))
+    return max(lo, min(hi, 1.0 - intra_spread / global_spread))
 
 
 def _shrink(data, reprs, mean_row, shrink):
-    """Shrink each representative toward the cluster mean.
-
-    new_val = val + shrink * (mean_val - val)  for numeric columns.
-    Symbolic columns are left unchanged.
-    """
+    """Shrink each representative toward the cluster mean (numeric cols only)."""
     shrunk = []
     for rep in reprs:
         new_rep = []
         for col_idx, (rv, mv) in enumerate(zip(rep, mean_row)):
             col_obj = data.cols.all[col_idx] if col_idx < len(data.cols.all) else None
-            if col_obj and hasattr(col_obj, "mu") and rv != "?" and mv != "?": # numeric column
+            if col_obj and hasattr(col_obj, "mu") and rv != "?" and mv != "?":
                 new_rep.append(rv + shrink * (mv - rv))
-            else: # symbolic column or missing value
+            else:
                 new_rep.append(rv)
         shrunk.append(new_rep)
     return shrunk
 
 
-# =============================================================================
-# CURE
-# =============================================================================
-
-def cure(data, rows, k=None, n_repr=CURE_N_REPR,
-         max_iter=LLOYD_ITERS):
+def cure(data, rows, k=None, n_repr=CURE_N_REPR, max_iter=LLOYD_ITERS):
     """CURE clustering with adaptive per-cluster shrink.
-
-    shrink_i = 1 - (intra_cluster_spread_i / global_spread)
 
     Returns:
         list of (shrunken_reprs, cluster_rows) tuples — one per cluster.
@@ -193,22 +190,17 @@ def cure(data, rows, k=None, n_repr=CURE_N_REPR,
     if len(rows) <= k:
         return [([r], [r]) for r in rows]
 
-    # Global spread: mean distance of every row to the overall mean
     global_mean   = _cluster_mean(data, rows)
     global_spread = _cluster_spread(data, rows, global_mean)
-
-    # Initialise via K-Means++ seeding
-    centroids = distKpp(data, rows=rows, k=k)
+    centroids     = distKpp(data, rows=rows, k=k)
 
     for _ in range(max_iter):
-        # Assign rows to nearest centroid
         clusters = [[] for _ in range(k)]
         for row in rows:
             dists   = [distx(data, row, c) for c in centroids]
             nearest = dists.index(min(dists))
             clusters[nearest].append(row)
 
-        # Build shrunken representatives with adaptive shrink per cluster
         cluster_reprs = []
         new_centroids = []
         for ci, cluster in enumerate(clusters):
@@ -220,11 +212,9 @@ def cure(data, rows, k=None, n_repr=CURE_N_REPR,
             intra_spread = _cluster_spread(data, cluster, mean_row)
             shrink       = _adaptive_shrink(intra_spread, global_spread)
             reprs        = _farthest_first_repr(data, cluster, mean_row, n_repr)
-            shrunk       = _shrink(data, reprs, mean_row, shrink)
-            cluster_reprs.append(shrunk)
+            cluster_reprs.append(_shrink(data, reprs, mean_row, shrink))
             new_centroids.append(mean_row)
 
-        # Re-assign rows using shrunken representatives
         new_clusters = [[] for _ in range(k)]
         for row in rows:
             best_ci, best_dist = 0, float("inf")
@@ -235,7 +225,6 @@ def cure(data, rows, k=None, n_repr=CURE_N_REPR,
                     best_ci   = ci
             new_clusters[best_ci].append(row)
 
-        # Convergence check
         if all(
             set(id(r) for r in c1) == set(id(r) for r in c2)
             for c1, c2 in zip(clusters, new_clusters)
@@ -244,7 +233,6 @@ def cure(data, rows, k=None, n_repr=CURE_N_REPR,
         clusters  = new_clusters
         centroids = new_centroids
 
-    # Build final representatives with adaptive shrink
     result = []
     for ci, cluster in enumerate(clusters):
         if not cluster:
@@ -254,14 +242,12 @@ def cure(data, rows, k=None, n_repr=CURE_N_REPR,
         intra_spread = _cluster_spread(data, cluster, mean_row)
         shrink       = _adaptive_shrink(intra_spread, global_spread)
         reprs        = _farthest_first_repr(data, cluster, mean_row, n_repr)
-        shrunk       = _shrink(data, reprs, mean_row, shrink)
-        result.append((shrunk, cluster))
+        result.append((_shrink(data, reprs, mean_row, shrink), cluster))
     return result
 
 
 def predict_cure(data, cure_clusters, row):
-    """Return the actual cluster member whose cluster has the nearest
-    shrunken representative to `row`."""
+    """Return the actual cluster member nearest to `row` via shrunken reps."""
     best_dist, best_cluster = float("inf"), None
     for reprs, cluster in cure_clusters:
         d = min(distx(data, row, rep) for rep in reprs)
@@ -274,10 +260,111 @@ def predict_cure(data, cure_clusters, row):
 
 
 # =============================================================================
+# HDBSCAN helpers
+# =============================================================================
+
+def _row_to_numeric(data, row):
+    """Convert a mixed-type row to a float vector for HDBSCAN.
+
+    Numeric columns: use the value (or column mean for missing).
+    Symbolic columns: encode as 0.0 (treated as a constant — HDBSCAN
+    operates on the numeric subspace; distx handles full mixed distance
+    at prediction time).
+    """
+    vec = []
+    for col_obj, val in zip(data.cols.all, row):
+        if hasattr(col_obj, "mu"):          # Num column
+            if val == "?":
+                vec.append(col_obj.mu)
+            else:
+                vec.append(float(val))
+        else:                               # Sym column — skip (encode as 0)
+            vec.append(0.0)
+    return vec
+
+
+def fit_hdbscan(data, rows, min_cluster_size=None):
+    """Fit HDBSCAN on `rows` and return cluster assignments.
+
+    Args:
+        data:             ezr Data object (for column metadata).
+        rows:             list of rows to cluster.
+        min_cluster_size: smallest cluster size HDBSCAN will form.
+                          Defaults to max(2, len(rows) // the.leaf).
+
+    Returns:
+        clusters: list of lists — each inner list is one cluster's rows.
+                  Noise points (label -1) are reassigned to their
+                  nearest non-noise neighbour's cluster.
+    """
+    if not HDBSCAN_AVAILABLE:
+        raise RuntimeError("hdbscan library not available.")
+
+    if min_cluster_size is None:
+        min_cluster_size = max(2, len(rows) // the.leaf)
+
+    min_samples = max(1, min_cluster_size // 2)
+
+    X = np.array([_row_to_numeric(data, r) for r in rows], dtype=float)
+
+    clusterer = hdbscan_lib.HDBSCAN(
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        metric="euclidean",
+    )
+    labels = clusterer.fit_predict(X)
+
+    # Group rows by cluster label
+    label_set = sorted(set(labels) - {-1})
+
+    if not label_set:
+        # All noise — treat as one single cluster
+        return [list(rows)]
+
+    cluster_map = {lbl: [] for lbl in label_set}
+    noise_rows  = []
+    for row, lbl in zip(rows, labels):
+        if lbl == -1:
+            noise_rows.append(row)
+        else:
+            cluster_map[lbl].append(row)
+
+    clusters = [cluster_map[lbl] for lbl in label_set]
+
+    # Reassign noise points to nearest non-noise cluster member
+    for nr in noise_rows:
+        best_ci, best_dist = 0, float("inf")
+        for ci, cluster in enumerate(clusters):
+            d = min(distx(data, nr, r) for r in cluster)
+            if d < best_dist:
+                best_dist = d
+                best_ci   = ci
+        clusters[best_ci].append(nr)
+
+    return clusters
+
+
+def predict_hdbscan(data, clusters, row):
+    """Return the actual cluster member nearest to `row`.
+
+    Finds the cluster whose closest member is nearest (distx), then
+    returns that closest member as the prediction.
+    """
+    best_dist, best_member = float("inf"), None
+    for cluster in clusters:
+        for member in cluster:
+            d = distx(data, row, member)
+            if d < best_dist:
+                best_dist   = d
+                best_member = member
+    return best_member if best_member is not None else row
+
+
+# =============================================================================
 # Main experiment
 # =============================================================================
 
-def run(file_directory, out_dir="results/5.2", repeats=20):
+def run(file_directory, out_dir="results/5.3", repeats=20):
     all_data = Data(csv(file_directory))
     if not all_data.cols.y:
         if all_data.cols.klass:
@@ -292,10 +379,11 @@ def run(file_directory, out_dir="results/5.2", repeats=20):
     win     = lambda v: int(100 * (1 - (v - b4.lo) / (b4.mu - b4.lo)))
     b4_wins = adds([win(k) for k in ys])
 
-    budget     = 50
-    the.Budget = budget
-    the.Check  = 10
-    k          = max(2, budget // the.leaf)
+    budget           = 50
+    the.Budget       = budget
+    the.Check        = 10
+    k                = max(2, budget // the.leaf)   # K-Means clusters
+    min_cluster_size = max(2, budget // the.leaf)   # HDBSCAN granularity
 
     # =========================================================
     # Part 1: Performance (20 train/holdout splits per treatment)
@@ -315,8 +403,8 @@ def run(file_directory, out_dir="results/5.2", repeats=20):
             holdout = clone(all_data, shuffled_rows[half:])
 
             # All treatments use the same labeled rows chosen by likely()
-            labels  = likely(train)   # active-learning selection, budget=50
-            sampled = labels[:budget]  # the rows seen by all methods
+            labels  = likely(train)        # active-learning selection, budget=50
+            sampled = labels[:budget]      # same rows for all methods this seed
 
             if trt == "kmeans":
                 centroids = kmeans(clone(all_data, sampled), sampled, k=k)
@@ -330,6 +418,17 @@ def run(file_directory, out_dir="results/5.2", repeats=20):
                 cure_clusters = cure(clone(all_data, sampled), sampled, k=k)
                 scored        = [
                     (disty(all_data, predict_cure(all_data, cure_clusters, row)), row)
+                    for row in holdout.rows
+                ]
+                top_rows = sorted(scored, key=lambda x: x[0])[:the.Check]
+
+            elif trt == "hdbscan":
+                clusters = fit_hdbscan(
+                    clone(all_data, sampled), sampled,
+                    min_cluster_size=min_cluster_size
+                )
+                scored   = [
+                    (disty(all_data, predict_hdbscan(all_data, clusters, row)), row)
                     for row in holdout.rows
                 ]
                 top_rows = sorted(scored, key=lambda x: x[0])[:the.Check]
@@ -363,18 +462,23 @@ def run(file_directory, out_dir="results/5.2", repeats=20):
     test  = clone(all_data, test_rows)
 
     # Pre-compute one set of models per seed (shared labels across treatments)
-    kmeans_models = []
-    cure_models   = []
-    tree_models   = []
+    kmeans_models  = []
+    cure_models    = []
+    hdbscan_models = []
+    tree_models    = []
 
     for rand_seed in range(repeats):
         the.seed = rand_seed
         random.seed(rand_seed)
-        labels  = likely(train)          # active-learning selection, budget=50
-        sampled = labels[:budget]        # same rows for all three treatments
+        labels  = likely(train)        # active-learning selection, budget=50
+        sampled = labels[:budget]      # same rows for all four treatments
 
         kmeans_models.append(kmeans(clone(all_data, sampled), sampled, k=k))
         cure_models.append(cure(clone(all_data, sampled), sampled, k=k))
+        hdbscan_models.append(
+            fit_hdbscan(clone(all_data, sampled), sampled,
+                        min_cluster_size=min_cluster_size)
+        )
         tree_models.append(Tree(clone(train, labels)))
 
     stability_agreement = {}
@@ -392,6 +496,11 @@ def run(file_directory, out_dir="results/5.2", repeats=20):
                 win_scores = [
                     win(disty(all_data, predict_cure(all_data, cure_clusters, row)))
                     for cure_clusters in cure_models
+                ]
+            elif trt == "hdbscan":
+                win_scores = [
+                    win(disty(all_data, predict_hdbscan(all_data, clusters, row)))
+                    for clusters in hdbscan_models
                 ]
             else:  # ezr
                 win_scores = [win(treeLeaf(tree, row).mu) for tree in tree_models]
@@ -424,5 +533,5 @@ def run(file_directory, out_dir="results/5.2", repeats=20):
 
 if __name__ == "__main__":
     file_directory = sys.argv[1] if len(sys.argv) > 1 else "data/optimize/misc/auto93.csv"
-    output_dir     = sys.argv[2] if len(sys.argv) > 2 else "results/5.2"
+    output_dir     = sys.argv[2] if len(sys.argv) > 2 else "results/5.3"
     run(file_directory, output_dir)
