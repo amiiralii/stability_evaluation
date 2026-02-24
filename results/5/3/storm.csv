@@ -1,0 +1,4 @@
+trt, performance_error, stability_agreement
+kmeans, 0.92, 18
+cure, 0.87, 23
+ezr, 0.95, 45

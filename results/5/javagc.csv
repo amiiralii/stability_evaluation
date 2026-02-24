@@ -1,6 +1,3 @@
-trt, stability_agreement, best_stability
-10, 68, 37
-20, 17, 6
-50, 36, 10
-100, 54, 23
-200, 46, 25
+trt, performance_error, stability_agreement
+kmeans, 11.49, 40
+tree, 5.41, 7
