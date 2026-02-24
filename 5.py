@@ -1,8 +1,7 @@
 """
-5.3.py — K-Means vs CURE vs HDBSCAN vs Tree: Stability & Performance comparison.
+5.py — K-Means vs CURE vs HDBSCAN vs EZR: Stability & Performance comparison.
 
-Extends 5.2.py by adding HDBSCAN (Hierarchical DBSCAN) as a fourth treatment
-alongside K-Means, CURE, and ezr Tree. All four run under identical conditions
+All four run under identical conditions
 (same splits, same seeds, fixed budget = 50).
 
 CURE algorithm:
@@ -24,7 +23,7 @@ Granularity knob (shared across K-Means, CURE, HDBSCAN):
   k / min_cluster_size = budget // the.leaf     (mirrors tree leaf-size)
   HDBSCAN min_samples  = max(1, min_cluster_size // 2)
 
-Fair comparison (Option 1):
+Fair comparison:
   For every seed, likely(train) selects `budget` labeled rows.
   All four treatments use those SAME rows.
 
@@ -39,7 +38,11 @@ Part 2 — Stability (single shared train/test split, 20 models per treatment):
   sd < 0.35 * b4_wins.sd -> stable.
 
 Output: one CSV per dataset under results/5.3/{dataset}.csv
-  Columns: trt, performance_error, stability_agreement
+  Columns: trt, performance_error, stability_agreement, best_performance, best_stability
+    performance_error:    RMSE of win-score gap (existing metric)
+    stability_agreement:  % of test rows with sd < 0.35 * b4_wins.sd (existing)
+    best_performance:     1 if treatment is in the statistically best group via top()
+    best_stability:       # of test rows where treatment is statistically most stable via top()
 """
 from ezr import *
 from stats import *
@@ -391,9 +394,11 @@ def run(file_directory, out_dir="results/5.3", repeats=20):
     # For each repeat, likely(train) selects the labeled 50 rows.
     # All three treatments use those SAME rows for a fair comparison.
     performance_error = {}
+    error_dist        = {}   # {trt: [per-seed errors]} for top()
 
     for trt in TREATMENTS:
-        mse = 0
+        mse    = 0
+        errors = []
         for rand_seed in range(repeats):
             random.seed(rand_seed)
             the.seed      = rand_seed
@@ -442,15 +447,21 @@ def run(file_directory, out_dir="results/5.3", repeats=20):
 
             ezr_perf = win(sorted([disty(all_data, row) for _, row in top_rows])[0])
             ref_opt  = win(min(disty(all_data, row) for row in holdout.rows))
-            mse     += abs(ezr_perf - ref_opt) ** 2
+            err      = ref_opt - ezr_perf
+            errors.append(err)
+            mse     += abs(err) ** 2
 
+        error_dist[trt]        = errors
         performance_error[trt] = (mse / repeats) ** 0.5
+
+    best_performances = top(error_dist, Ks=0.9, Delta="medium")
 
     # =========================================================
     # Part 2: Stability (single shared train/test split, Option 1)
     # =========================================================
     # Each seed calls likely(train) once; all three treatments
     # build their model from those same labeled rows.
+    random.seed(42)  # deterministic split independent of Part 1 RNG state
     all_data.rows = shuffle(all_data.rows)
     half       = len(all_data.rows) // 2
     train_rows = all_data.rows[:half]
@@ -483,9 +494,11 @@ def run(file_directory, out_dir="results/5.3", repeats=20):
 
     stability_agreement = {}
 
+    # Compute win-score predictions for every (treatment, model, test row)
+    # Shape: {trt: list-of-lists, outer=test_rows, inner=models}
+    all_win_scores = {}
     for trt in TREATMENTS:
-        agreement = 0
-
+        per_row = []
         for row in test.rows:
             if trt == "kmeans":
                 win_scores = [
@@ -504,11 +517,27 @@ def run(file_directory, out_dir="results/5.3", repeats=20):
                 ]
             else:  # ezr
                 win_scores = [win(treeLeaf(tree, row).mu) for tree in tree_models]
+            per_row.append(win_scores)
+        all_win_scores[trt] = per_row
 
+    # Threshold-based stability agreement (existing metric)
+    for trt in TREATMENTS:
+        agreement = 0
+        for win_scores in all_win_scores[trt]:
             if adds(win_scores).sd < 0.35 * b4_wins.sd:
                 agreement += 1
-
         stability_agreement[trt] = agreement * 100 // tests_size
+
+    # top()-based stability: per row, which treatments are statistically
+    # the most stable (lowest sd)?
+    best_stability = {trt: 0 for trt in TREATMENTS}
+    for row_idx in range(tests_size):
+        row_sd = {trt: adds(all_win_scores[trt][row_idx]).sd
+                  for trt in TREATMENTS}
+        bests_in_row = top({k: [v] for k, v in row_sd.items()},
+                          Ks=0.9, Delta="medium")
+        for trt in bests_in_row:
+            best_stability[trt] += 1
 
     # =========================================================
     # Output
@@ -517,11 +546,13 @@ def run(file_directory, out_dir="results/5.3", repeats=20):
     base_name = os.path.basename(file_directory).split('.')[0]
     out_path  = os.path.join(out_dir, f"{base_name}.csv")
 
-    header = "trt, performance_error, stability_agreement"
+    header = "trt, performance_error, stability_agreement, best_performance, best_stability"
     print(header)
     lines = [header]
     for trt in TREATMENTS:
-        line = f"{trt}, {performance_error[trt]:.2f}, {stability_agreement[trt]}"
+        bp = 1 if trt in best_performances else 0
+        bs = best_stability[trt]
+        line = f"{trt}, {performance_error[trt]:.2f}, {stability_agreement[trt]}, {bp}, {bs}"
         print(line)
         lines.append(line)
 
