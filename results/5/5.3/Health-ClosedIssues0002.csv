@@ -1,0 +1,5 @@
+trt, performance_error, stability_agreement
+kmeans, 21.14, 96
+cure, 20.56, 100
+hdbscan, 19.96, 100
+ezr, 20.56, 69
