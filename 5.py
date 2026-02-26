@@ -454,7 +454,22 @@ def run(file_directory, out_dir="results/5.3", repeats=20):
         error_dist[trt]        = errors
         performance_error[trt] = (mse / repeats) ** 0.5
 
-    best_performances = top(error_dist, Ks=0.9, Delta="medium")
+    # Efficient, concise pooled sd calculation
+    pooled_sd = adds([e for errs in error_dist.values() for e in errs]).sd
+    # print(f"std val= {pooled_sd*0.35:.2f}")
+    best_performances = top(error_dist, Ks=0.9, Delta="medium", eps=pooled_sd * 0.35)
+    # print(best_performances)
+    # best_performances_2 = top(error_dist, Ks=0.9, Delta="medium")
+    # print(best_performances_2)
+
+    # for i,j in error_dist.items():
+    #     print(i, "\t",sorted(j))
+
+    # input()
+
+
+
+
 
     # =========================================================
     # Part 2: Stability (single shared train/test split, Option 1)
@@ -534,8 +549,9 @@ def run(file_directory, out_dir="results/5.3", repeats=20):
     for row_idx in range(tests_size):
         row_sd = {trt: adds(all_win_scores[trt][row_idx]).sd
                   for trt in TREATMENTS}
+        pooled_sd = adds([sds for sds in row_sd.values()]).sd
         bests_in_row = top({k: [v] for k, v in row_sd.items()},
-                          Ks=0.9, Delta="medium")
+                          Ks=0.9, Delta="medium", eps=pooled_sd*0.35)
         for trt in bests_in_row:
             best_stability[trt] += 1
 
