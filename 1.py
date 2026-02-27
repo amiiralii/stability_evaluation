@@ -1,5 +1,5 @@
 """
-1.3.py — Stability & Performance evaluation across budget levels.
+1.py — Stability & Performance evaluation across budget levels.
 
 For each budget, builds 20 trees. Then:
   1. Performance: For each repeat, uses tree to pick best rows from holdout
@@ -19,7 +19,7 @@ import os
 
 BUDGET_NUMS = [10, 20, 50, 100, 200]
 
-def run(file_directory, out_dir="results/1.3", repeats=20):
+def run(file_directory, out_dir="results/1", repeats=20):
     all_data = Data(csv(file_directory))
     if not all_data.cols.y:
         if all_data.cols.klass:
@@ -67,7 +67,9 @@ def run(file_directory, out_dir="results/1.3", repeats=20):
         performance_error[budget] = (mse / repeats) ** 0.5
 
     # Which budgets are statistically best for performance?
-    best_performances = top(error_dist, Ks=0.9, Delta="medium")
+    # best_performances = top(error_dist, Ks=0.9, Delta="medium")
+    pooled_sd = adds([e for errs in error_dist.values() for e in errs]).sd
+    best_performances = top(error_dist, Ks=0.9, Delta="medium", eps=pooled_sd * 0.35)
 
     # =========================================================
     # Part 2: Stability
@@ -105,9 +107,15 @@ def run(file_directory, out_dir="results/1.3", repeats=20):
         stability_agreement[budget] = agreement * 100 // tests_size
 
     # Per-row stability winners via top()
+    # Per-row stability winners via top()
     best_stability = {budget: 0 for budget in BUDGET_NUMS}
+    pooled_sd_stability = adds([sd for row_s in stability_comp for sd in row_s.values()]).sd 
     for row_stability in stability_comp:
-        bests_in_row = top({k: [v] for k, v in row_stability.items()}, Ks=0.9, Delta="medium")
+        bests_in_row = top(
+            {k: [v] for k, v in row_stability.items()},
+            Ks=0.9, Delta="medium",
+            eps=pooled_sd_stability * 0.35 
+        )
         for m in bests_in_row:
             best_stability[m] += 1
 
