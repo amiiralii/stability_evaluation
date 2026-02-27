@@ -83,8 +83,9 @@ def run(file_directory, out_dir="results/1", repeats=20):
     train = clone(all_data, all_data.rows[tests_size:])
 
     stability_agreement = {}
-    # For each test row, store the sd under each budget
-    stability_comp = [{budget: 0 for budget in BUDGET_NUMS} for _ in range(len(test.rows))]
+    # For each test row, store the full win-score outputs under each budget
+    # Shape: all_win_scores[budget][row_idx] = [20 win scores]
+    all_win_scores = {budget: [] for budget in BUDGET_NUMS}
 
     for budget in BUDGET_NUMS:
         the.Budget = budget
@@ -100,22 +101,23 @@ def run(file_directory, out_dir="results/1", repeats=20):
         for idx, row in enumerate(test.rows):
             outputs = [win(treeLeaf(tree, row).mu) for tree in trees]
             preds   = adds(outputs)
-            stability_comp[idx][budget] = preds.sd
+            all_win_scores[budget].append(outputs)
             if preds.sd < 0.35 * b4_wins.sd:
                 agreement += 1
 
         stability_agreement[budget] = agreement * 100 // tests_size
 
     # Per-row stability winners via top()
-    # Per-row stability winners via top()
+    # Compare win-score distributions (higher = better), negated for top().
     best_stability = {budget: 0 for budget in BUDGET_NUMS}
-    pooled_sd_stability = adds([sd for row_s in stability_comp for sd in row_s.values()]).sd 
-    for row_stability in stability_comp:
-        bests_in_row = top(
-            {k: [v] for k, v in row_stability.items()},
-            Ks=0.9, Delta="medium",
-            eps=pooled_sd_stability * 0.35 
-        )
+    for row_idx in range(len(test.rows)):
+        row_distributions = {
+            budget: [-v for v in all_win_scores[budget][row_idx]]
+            for budget in BUDGET_NUMS
+        }
+        pooled_sd = adds([v for vals in row_distributions.values() for v in vals]).sd
+        bests_in_row = top(row_distributions,
+                          Ks=0.9, Delta="medium", eps=pooled_sd * 0.35)
         for m in bests_in_row:
             best_stability[m] += 1
 

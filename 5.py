@@ -543,15 +543,18 @@ def run(file_directory, out_dir="results/5.3", repeats=20):
                 agreement += 1
         stability_agreement[trt] = agreement * 100 // tests_size
 
-    # top()-based stability: per row, which treatments are statistically
-    # the most stable (lowest sd)?
+    # top()-based stability: per row, which treatments have the
+    # statistically highest (best) win-score distributions?
+    # top() is ascending (lowest = best), so we negate win scores.
     best_stability = {trt: 0 for trt in TREATMENTS}
     for row_idx in range(tests_size):
-        row_sd = {trt: adds(all_win_scores[trt][row_idx]).sd
-                  for trt in TREATMENTS}
-        pooled_sd = adds([sds for sds in row_sd.values()]).sd
-        bests_in_row = top({k: [v] for k, v in row_sd.items()},
-                          Ks=0.9, Delta="medium", eps=pooled_sd*0.35)
+        row_distributions = {
+            trt: [-v for v in all_win_scores[trt][row_idx]]
+            for trt in TREATMENTS
+        }
+        pooled_sd = adds([v for vals in row_distributions.values() for v in vals]).sd
+        bests_in_row = top(row_distributions,
+                          Ks=0.9, Delta="medium", eps=pooled_sd * 0.35)
         for trt in bests_in_row:
             best_stability[trt] += 1
 
