@@ -87,7 +87,7 @@ Scrum100k,0,0,0,0,0,0
 Scrum10k,0,0,0,0,0,0
 Scrum1k,0,0,0,0,0,0
 WA_Fn-UseC_-HR-Employee-Attrition,3,0,0,0,0,0
-WA_Fn-UseC_-Telco-Customer-Churn,24,0,0,0,0,0
+WA_Fn-UseC_-Telco-Customer-Churn,20,0,0,0,0,0
 Wine_quality,0,0,0,0,0,0
 X264_AllMeasurements,68,0,0,2,0,2
 accessories,0,0,0,0,0,0
@@ -103,7 +103,7 @@ dress-up,0,0,0,0,0,0
 exastencils,6,0,2,1,0,1
 home_data_for_ml_course,0,0,0,0,0,0
 javagc,0,0,0,0,0,0
-nasa93dem,18,7,7,7,14,7
+nasa93dem,18,7,7,7,11,7
 player_statistics_cleaned_final,20,29,33,33,25,33
 pom3a,0,0,0,0,0,0
 pom3b,0,0,0,0,0,0

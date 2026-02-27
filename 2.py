@@ -39,7 +39,8 @@ for acquisition in treatments:
     error_dist[acquisition] = error
     performace_error[acquisition] = (mse / repeats) ** 0.5
 
-best_performances = top(error_dist, Ks=0.9, Delta="medium")
+pooled_sd = adds([e for errs in error_dist.values() for e in errs]).sd
+best_performances = top(error_dist, Ks=0.9, Delta="medium", eps=pooled_sd * 0.35)
 
 all_data.rows = shuffle(all_data.rows)
 tests_size = min(100, int(len(all_data.rows) * 0.3))
@@ -71,7 +72,8 @@ for acquisition in treatments:
 # print("Stability,", stability_metric)
 best_stability = {acq:0 for acq in treatments}
 for row_stability in stability_comp:
-    bests_in_row = top({k:[v] for k,v in row_stability.items()}, Ks=0.9, Delta="medium")
+    pooled_sd = adds([sds for sds in row_stability.values()]).sd
+    bests_in_row = top({k:[v] for k,v in row_stability.items()}, Ks=0.9, Delta="medium", eps=pooled_sd * 0.35)
     # print(bests_in_row, row_stability)
     for m in bests_in_row:
         best_stability[m] += 1
