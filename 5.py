@@ -580,5 +580,5 @@ def run(file_directory, out_dir="results/5.3", repeats=20):
 
 if __name__ == "__main__":
     file_directory = sys.argv[1] if len(sys.argv) > 1 else "data/optimize/misc/auto93.csv"
-    output_dir     = sys.argv[2] if len(sys.argv) > 2 else "results/5.3"
+    output_dir     = sys.argv[2] if len(sys.argv) > 2 else "results/5"
     run(file_directory, output_dir)

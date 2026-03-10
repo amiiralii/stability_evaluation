@@ -13,6 +13,7 @@ Options:
     -C  Check=5           budget for checking learned model
     -D  Delta=smed        effect size test for cliff's delta
     -F  Few=128           sample size of data random sampling  
+    -I  Impurity=entropy  when making Tree, method to compute impurity (entropy|gini)
     -K  Ks=0.95           confidence for Kolmogorovâ€"Smirnov test
     -l  leaf=3            min items in tree leaves
     -m  m=1               Bayes low frequency param
@@ -122,11 +123,17 @@ def divs(data:Data) -> float:
   return [div(col) for col in data.cols.all]
 
 def div(col:o) -> float:
-  "Return the central tendnacy for one column."
+  "Return the central tendency for one column (sd for Num; Gini or entropy for Sym)."
   if col.it is Num: return col.sd
-  vs = col.has.values()
+  vs = list(col.has.values())
   N  = sum(vs)
-  return -sum(p*math.log(p,2) for n in vs if (p:=n/N) > 0)
+  if N <= 0: return 0
+  # Gini impurity (no log, stable near zero)
+  if the.Impurity == "gini":
+    return 1 - sum((n / N) ** 2 for n in vs)
+  # Entropy in bits (uses log) — uncomment one and comment the other to switch:
+  if the.Impurity == "entropy":
+    return -sum(p * math.log(p, 2) for n in vs if (p := n / N) > 0)
 
 # ## Distance Calcs ---------------------------------------------------
 def dist(src) -> float:
@@ -321,7 +328,7 @@ def _symCuts(at, xys, Y, Klass) -> (float, list[Op]):
     unique_vals = set(x for x, _ in xys)
     spread, cuts = big, []
     for val in unique_vals:
-        left, right = Klass(), Klass()
+        left, right = Sym(), Sym()
         [add(left if x == val else right, y) for x, y in xys]
         if left.n >= the.leaf and right.n >= the.leaf:
             now = (left.n * div(left) + right.n * div(right)) / (left.n + right.n)

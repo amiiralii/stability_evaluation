@@ -31,12 +31,28 @@ def summarize_datasets():
                                    if not col.endswith('+') 
                                    and not col.endswith('X')
                                    and not col.endswith('-'))
+                # Count numerical features
+                numeric_features = sum(1 for col in header 
+                                   if not col.endswith('+') 
+                                   and not col.endswith('X')
+                                   and not col.endswith('-')
+                                   and col[0].isupper())
+
+                # Count categorical features
+                cat_features = sum(1 for col in header 
+                                   if not col.endswith('+') 
+                                   and not col.endswith('X')
+                                   and not col.endswith('-')
+                                   and not col[0].isupper())
                 
+
                 results.append({
                     'dataset': dataset_name,
                     'rows': num_rows,
                     'features': num_features,
                     'objectives': num_objectives,
+                    'numerics':numeric_features,
+                    'categorical':cat_features,
                 })
         except Exception as e:
             print(f"Error processing {filepath}: {e}")
@@ -52,17 +68,17 @@ def summarize_datasets():
         os.makedirs('results', exist_ok=True)
         csv_path = os.path.join('results', output_file)
         with open(csv_path, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=['dataset', 'rows', 'objectives', 'features'])
+            writer = csv.DictWriter(f, fieldnames=['dataset', 'rows', 'objectives', 'features', 'numerics', 'categorical'])
             writer.writeheader()
             for row in results_sorted:
                 writer.writerow(row)
         print(f"Summary written to {csv_path}")
     else:
         # Print header
-        print(f"{'dataset':35s} {'rows':>8s} {'objectives':>11s} {'features':>9s}")
-        print("-" * 68)
+        print(f"{'dataset':35s} {'rows':>8s} {'objectives':>11s} {'features':>9s} {'numerics':>9s} {'cats':>9s}")
+        print("-" * 87)
         for row in results_sorted:
-            print(f"{row['dataset']:35s} {row['rows']:8d} {row['objectives']:11d} {row['features']:9d}")
+            print(f"{row['dataset']:35s} {row['rows']:8d} {row['objectives']:11d} {row['features']:9d} {row['numerics']:9d} {row['categorical']:9d}")
 
 
     print(f"Total datasets: {len(results)}")
