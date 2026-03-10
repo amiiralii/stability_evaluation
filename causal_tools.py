@@ -27,7 +27,13 @@ def disc(col, v, eps=1e-32):
   if v == "?": return None             ## [FIX] return None explicitly (was bare `return`)
 
   def z(x):        return (x - col.mu) / (col.sd + eps)
-  def logistic(x): return 1.0 / (1.0 + exp(-1.702 * z(x)))  ## [FIX] use `exp` from math (not math.exp) since we did `from math import *`
+  ## [FIX] Clamp the exponent to avoid OverflowError when z(x) is extreme.
+  ## For z > ~30, logistic ≈ 1.0; for z < ~-30, logistic ≈ 0.0.
+  def logistic(x):
+    zv = -1.702 * z(x)
+    if zv >  500: return 0.0   # exp(500) overflows; logistic → 0
+    if zv < -500: return 1.0   # exp(-500) ≈ 0;     logistic → 1
+    return 1.0 / (1.0 + exp(zv))
 
   q = 5
   edges = [(i / q) for i in range(1, q)]   # [0.2, 0.4, 0.6, 0.8]
