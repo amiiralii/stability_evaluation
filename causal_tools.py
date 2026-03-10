@@ -205,32 +205,86 @@ def causalTree(data, rows=None, Y=None, Klass=Num, how=None):
 
   def remove_confounder(data):
     """Identify and exclude columns whose association with d2h is
-    explained away by another column (confounders)."""
+    explained away by another column (confounders).
+
+    ## [CHANGED] Strategy: "keep the stronger cause".
+    ## When A confounds B AND B confounds A (mutual confounding),
+    ## keep the one with the lower H(Y|X)/H(Y) ratio (stronger causal signal)
+    ## and only remove the weaker one. This prevents symmetric removal
+    ## where highly correlated feature pairs (e.g. memory_tables / cached_tables)
+    ## both get killed."""
     ys = [Y(r) for r in data.rows]
-    cf = []
+    y_disc = disc2(data.ys, ys)
+    if len(y_disc) == 0:
+      return data
+
+    ## Step 1: Compute causal strength for every x-column: H(Y|X)/H(Y)
+    ## Lower = stronger causal signal.
+    h_y = h(data.ys, ys)
+    causal_strength = {}   # col.txt -> ratio (lower is better)
+    col_disc_cache  = {}   # col.txt -> discretized values
     for col in data.cols.x:
       x_disc = disc2(col, [r[col.at] for r in data.rows])
-      y_disc = disc2(data.ys, ys)
-      ## [FIX] Guard: skip if discretization produced empty lists.
-      if len(x_disc) == 0 or len(y_disc) == 0:
+      col_disc_cache[col.txt] = x_disc
+      if len(x_disc) == 0 or h_y < 1e-9:
+        causal_strength[col.txt] = 1e32  # worst possible
+      else:
+        m = min(len(x_disc), len(y_disc))
+        causal_strength[col.txt] = (hcond(ys[:m], data.ys, x_disc[:m], col) + 1e-32) / h_y
+
+    ## Step 2: For each pair (A, B), check if one confounds the other.
+    ## Only remove the WEAKER one (higher causal_strength ratio).
+    cf = set()          # names of columns to remove
+    already_kept = set() # names of columns we decided to keep (won a tie-break)
+
+    for col in data.cols.x:
+      if col.txt in cf:
+        continue  # already marked for removal, skip
+      x_disc = col_disc_cache[col.txt]
+      if len(x_disc) == 0:
         continue
-      if mi(x_disc, y_disc) > 0.1:
-        for c2 in data.cols.x:
-          if c2 != col:
-            z_disc = disc2(c2, [r[c2.at] for r in data.rows])
-            if len(z_disc) == 0:
-              continue
-            ## Align lengths before calling micond
-            m = min(len(x_disc), len(y_disc), len(z_disc))
-            if micond(x_disc[:m], y_disc[:m], z_disc[:m]) < 0.01:
-              ## [FIX] Fixed typo: "coofounder" → "confounder"
-              print(f"  confounder {col.txt} found! (explained by {c2.txt})")
-              cf.append(col)
-              break  ## [FIX] Added break — once a confounder is found for this col, stop checking
+      if mi(x_disc, y_disc[:len(x_disc)]) <= 0.1:
+        continue  # not relevant enough to bother checking
+
+      for c2 in data.cols.x:
+        if c2 == col or c2.txt in cf:
+          continue
+        z_disc = col_disc_cache.get(c2.txt, [])
+        if len(z_disc) == 0:
+          continue
+        m = min(len(x_disc), len(y_disc), len(z_disc))
+        if micond(x_disc[:m], y_disc[:m], z_disc[:m]) < 0.01:
+          ## c2 explains away col's association with Y.
+          ## But does col also explain away c2? (mutual confounding)
+          x2_disc = col_disc_cache.get(c2.txt, [])
+          m2 = min(len(x2_disc), len(y_disc), len(x_disc))
+          mutual = (m2 > 1 and micond(x2_disc[:m2], y_disc[:m2], x_disc[:m2]) < 0.01)
+
+          if mutual:
+            ## Mutual confounding: keep the stronger cause, remove the weaker.
+            if causal_strength[col.txt] <= causal_strength[c2.txt]:
+              ## col is stronger (or equal) — keep col, remove c2
+              print(f"  mutual confounders: {col.txt} vs {c2.txt} "
+                    f"— keeping {col.txt} (ratio={causal_strength[col.txt]:.3f} "
+                    f"<= {causal_strength[c2.txt]:.3f})")
+              cf.add(c2.txt)
+              already_kept.add(col.txt)
+            else:
+              ## c2 is stronger — remove col, keep c2
+              print(f"  mutual confounders: {col.txt} vs {c2.txt} "
+                    f"— keeping {c2.txt} (ratio={causal_strength[c2.txt]:.3f} "
+                    f"< {causal_strength[col.txt]:.3f})")
+              cf.add(col.txt)
+              already_kept.add(c2.txt)
+              break  # col is removed, no need to check further
+          else:
+            ## One-directional: c2 confounds col, but not vice versa → remove col
+            print(f"  confounder {col.txt} found! (explained by {c2.txt})")
+            cf.add(col.txt)
+            break  # col is removed
 
     ## Mark confounded columns with "X" suffix so ezr ignores them
-    names = [c.txt for c in cf]
-    col_names = [c.txt if c.txt not in names else c.txt + "X" for c in data.cols.all]
+    col_names = [c.txt if c.txt not in cf else c.txt + "X" for c in data.cols.all]
     new_data = Data([col_names] + data.rows)
     return update_data(new_data)
 
