@@ -192,9 +192,15 @@ def causal_ok(col, d2hs, rows, Zs=None, eps=1e-3):
 # Tree Generation
 # ---------------------------------------------------------------------------
 
-def causalTree(data, rows=None, Y=None, Klass=Num, how=None):
+def causalTree(data, rows=None, Y=None, Klass=Num, how=None, adaptive_leaf=False):
   """Prepare labeled data and pass it to the causal tree generator.
-  Steps: compute d2h target → remove confounded columns → build tree."""
+  Steps: compute d2h target → remove confounded columns → build tree.
+
+  If adaptive_leaf=True, the leaf size is scaled up proportionally to
+  compensate for features lost to confounder removal:
+    adaptive_leaf_size = ceil(the.leaf × original_features / remaining_features)
+  This keeps tree granularity consistent with the reduced feature space."""
+  import math
   Y = (lambda row: disty(data, row))
 
   def update_data(data):
@@ -294,10 +300,35 @@ def causalTree(data, rows=None, Y=None, Klass=Num, how=None):
     new_data = Data([col_names] + data.rows)
     return update_data(new_data)
 
-  ## [CHANGED] Use the.leaf from config instead of hardcoding 2.
-  ## Original had: the.leaf = 2
-  ## Now we respect the config default (3) but allow override.
-  return causalTreeGenerate(remove_confounder(update_data(data)))
+  ## Step 1: update data (attach stats, compute d2h)
+  updated = update_data(data)
+  original_n_features = len(updated.cols.x)
+
+  ## Step 2: remove confounders
+  cleaned = remove_confounder(updated)
+  remaining_n_features = len(cleaned.cols.x)
+
+  ## [NEW] Step 3: if adaptive_leaf, scale the.leaf to compensate for lost features.
+  ## Intuition: fewer features → shallower tree → need finer leaves to maintain
+  ## the same granularity of splits that the original feature set would have provided.
+  ## Formula: adaptive_leaf_size = ceil(the.leaf × original / remaining)
+  ## Clamped to [the.leaf, 2 * the.leaf] to avoid extreme values.
+  saved_leaf = the.leaf
+  if adaptive_leaf and remaining_n_features > 0 and remaining_n_features < original_n_features:
+    ratio = original_n_features / remaining_n_features
+    adaptive_size = math.ceil(the.leaf * ratio)
+    adaptive_size = max(the.leaf, min(adaptive_size, 2 * the.leaf))  # clamp
+    print(f"  [adaptive] features: {original_n_features} → {remaining_n_features}, "
+          f"leaf: {the.leaf} → {adaptive_size}")
+    the.leaf = adaptive_size
+
+  ## Step 4: build the tree
+  tree = causalTreeGenerate(cleaned)
+
+  ## Restore the.leaf so we don't pollute global state for other callers
+  the.leaf = saved_leaf
+
+  return tree
 
 
 def causalTreeSelects(col, row: Row, op: str, at: int, y: Atom) -> bool:
