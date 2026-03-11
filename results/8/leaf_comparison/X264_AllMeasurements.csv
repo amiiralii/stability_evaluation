@@ -1,0 +1,9 @@
+leaf_size, trt, performance_error, stability_agreement, best_performance, best_stability
+3, ezr, 0.87, 50, 1, 33
+3, causal_ezr, 1.16, 67, 0, 67
+5, ezr, 1.45, 56, 1, 48
+5, causal_ezr, 1.20, 55, 1, 52
+7, ezr, 1.45, 77, 1, 64
+7, causal_ezr, 1.50, 54, 1, 36
+9, ezr, 1.97, 46, 1, 54
+9, causal_ezr, 1.50, 54, 1, 46
