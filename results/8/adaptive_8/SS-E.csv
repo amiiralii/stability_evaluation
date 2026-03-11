@@ -1,0 +1,4 @@
+trt, performance_error, stability_agreement, best_performance, best_stability
+ezr, 24.21, 7, 1, 50
+causal_ezr, 42.69, 0, 0, 50
+adaptive_causal_ezr, 42.69, 0, 0, 50
