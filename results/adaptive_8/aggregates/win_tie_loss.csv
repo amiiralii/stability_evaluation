@@ -1,0 +1,13 @@
+metric,treatment_a,treatment_b,a_wins,ties,b_wins
+performance_error,ezr,causal_ezr,88,11,26
+performance_error,ezr,adaptive_causal_ezr,92,11,22
+performance_error,causal_ezr,adaptive_causal_ezr,17,98,10
+stability_agreement,ezr,causal_ezr,39,59,27
+stability_agreement,ezr,adaptive_causal_ezr,39,59,27
+stability_agreement,causal_ezr,adaptive_causal_ezr,6,111,8
+best_performance,ezr,causal_ezr,35,87,3
+best_performance,ezr,adaptive_causal_ezr,35,87,3
+best_performance,causal_ezr,adaptive_causal_ezr,0,125,0
+best_stability,ezr,causal_ezr,43,4,78
+best_stability,ezr,adaptive_causal_ezr,39,4,82
+best_stability,causal_ezr,adaptive_causal_ezr,15,74,36

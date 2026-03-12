@@ -1,0 +1,4 @@
+trt,performance_error_mean,performance_error_median,performance_error_count,stability_agreement_mean,stability_agreement_median,stability_agreement_count,best_performance_mean,best_performance_median,best_performance_count,best_stability_mean,best_stability_median,best_stability_count
+ezr,24.01,20.63,125,25.07,5.0,125,0.98,1.0,125,39.06,37.0,125
+causal_ezr,27.94,23.98,125,24.95,3.0,125,0.72,1.0,125,56.42,54.0,125
+adaptive_causal_ezr,28.1,23.98,125,24.97,3.0,125,0.72,1.0,125,60.03,62.0,125
