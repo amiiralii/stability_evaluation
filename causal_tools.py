@@ -12,6 +12,20 @@ from math import *
 from collections import Counter, defaultdict
 from ezr import *
 
+# ---------------------------------------------------------------------------
+# Causal threshold constants (single source of truth)
+# ---------------------------------------------------------------------------
+# MI_RELEVANCE_EPS:  minimum mutual information I(X;Y) for X to be considered
+#                    relevant to Y.  Below this → treat as independent.
+# CONFOUND_EPS:      maximum conditional MI I(X;Y|Z) to declare Z a confounder.
+#                    Below this → Z explains away the X↔Y link.
+# DIRECTION_EPS:     tolerance for the entropy asymmetry test H(X|Y) vs H(Y|X).
+#                    Allows a small margin before rejecting causal direction.
+
+MI_RELEVANCE_EPS = 0.01
+CONFOUND_EPS     = 0.01
+DIRECTION_EPS    = 0.01
+
 
 # ---------------------------------------------------------------------------
 # Discretization
@@ -103,9 +117,9 @@ def hcond(xx, colx, yy, coly):
     for c in Counter(v).values())) for v in b.values())
 
 
-def micond(x, y, z, eps=1e-3):
+def micond(x, y, z):
   """Conditional mutual information I(X;Y|Z) = Σ_z p(z) · I(X;Y|Z=z).
-  Used to detect confounders: if I(X;Y|Z)≈0, then Z explains away the X↔Y link."""
+  Used to detect confounders: if I(X;Y|Z) < CONFOUND_EPS, then Z explains away the X↔Y link."""
   b = defaultdict(lambda: ([], []))
   for xi, yi, zi in zip(x, y, z):
     a, b_ = b[zi]
@@ -130,12 +144,12 @@ def micond(x, y, z, eps=1e-3):
 ## [CHANGED] Rewrote causal_ok to use the corrected disc2(col, values) signature
 ## instead of the old disc2(values, mu, sd, q) signature which didn't match any
 ## definition of disc2. Also cleaned up print statements.
-def causal_ok(col, d2hs, rows, Zs=None, eps=1e-3):
+def causal_ok(col, d2hs, rows, Zs=None):
   """Test whether column `col` has a genuine causal relationship with the target (d2h).
   Three-stage filter:
-    1. Relevance:  I(X;Y) > eps
-    2. Direction:  H(X|Y) <= H(Y|X) + eps  (entropy asymmetry → X causes Y)
-    3. Confounding: I(X;Y|Z) > eps for every potential confounder Z
+    1. Relevance:  I(X;Y) > MI_RELEVANCE_EPS
+    2. Direction:  H(X|Y) <= H(Y|X) + DIRECTION_EPS  (entropy asymmetry → X causes Y)
+    3. Confounding: I(X;Y|Z) > CONFOUND_EPS for every potential confounder Z
   """
   ## col  : column to check
   ## d2hs : Num summarizer for d2h values, with .rows = [d2h_1, d2h_2, ...]
@@ -168,11 +182,11 @@ def causal_ok(col, d2hs, rows, Zs=None, eps=1e-3):
     print(f"  [{col.txt}] MI={mi_xy:.3f}, H(X|Y)={hcond_xy:.3f}, H(Y|X)={hcond_yx:.3f}")
 
   # Stage 1: Relevance
-  if mi_xy <= eps:
+  if mi_xy <= MI_RELEVANCE_EPS:
     return False
 
   # Stage 2: Causal direction — X should explain Y, not the reverse
-  if hcond_xy > eps + hcond_yx:
+  if hcond_xy > DIRECTION_EPS + hcond_yx:
     return False
 
   # Stage 3: Confounding — association must survive conditioning on every Z
@@ -182,7 +196,7 @@ def causal_ok(col, d2hs, rows, Zs=None, eps=1e-3):
       z = disc2(Z, z_raw)                      ## [FIX] correct disc2 signature
       ## Align lengths
       m = min(len(x), len(y), len(z))
-      if micond(x[:m], y[:m], z[:m]) <= eps:
+      if micond(x[:m], y[:m], z[:m]) <= CONFOUND_EPS:
         return False
 
   return True
@@ -255,7 +269,7 @@ def causalTree(data, rows=None, Y=None, Klass=Num, how=None, adaptive_leaf=False
       x_disc = col_disc_cache[col.txt]
       if len(x_disc) == 0:
         continue
-      if mi(x_disc, y_disc[:len(x_disc)]) <= 0.1:
+      if mi(x_disc, y_disc[:len(x_disc)]) <= MI_RELEVANCE_EPS:
         continue  # not relevant enough to bother checking
 
       for c2 in data.cols.x:
@@ -265,12 +279,12 @@ def causalTree(data, rows=None, Y=None, Klass=Num, how=None, adaptive_leaf=False
         if len(z_disc) == 0:
           continue
         m = min(len(x_disc), len(y_disc), len(z_disc))
-        if micond(x_disc[:m], y_disc[:m], z_disc[:m]) < 0.01:
+        if micond(x_disc[:m], y_disc[:m], z_disc[:m]) < CONFOUND_EPS:
           ## c2 explains away col's association with Y.
           ## But does col also explain away c2? (mutual confounding)
           x2_disc = col_disc_cache.get(c2.txt, [])
           m2 = min(len(x2_disc), len(y_disc), len(x_disc))
-          mutual = (m2 > 1 and micond(x2_disc[:m2], y_disc[:m2], x_disc[:m2]) < 0.01)
+          mutual = (m2 > 1 and micond(x2_disc[:m2], y_disc[:m2], x_disc[:m2]) < CONFOUND_EPS)
 
           if mutual:
             ## Mutual confounding: keep the stronger cause, remove the weaker.
