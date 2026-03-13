@@ -11,7 +11,7 @@
 | 5 | Landscape 1 | Compare the Stability of Trees with incremental clustering methods. | [sheet](https://docs.google.com/spreadsheets/d/1_7vIlcXhXdVfYhEKzGAHLbo9wbgV-QuVnf3RBY9kZ2c/edit?usp=sharing)
 | 6 | Landscape 2 (Probably next paper) | Comparing stability through different datasets with different d2h distributions. <br> checking out when EZR performs well and when it sucks| [sheet](https://docs.google.com/spreadsheets/d/1VXA_FA3PhrYczAdjauItpy6caUK53J95bqEEnwz8qV4/edit?usp=sharing) |
 | 7 | Numerical methods | Compare stability through trees with Log and without Log splits. | TBD |
-| 8 | Causality 1 | Apply confounder filtering to see if it helps trees. | TBD |
+| 8 | Causality 1 | Apply confounder filtering to see if it helps trees. | [sheet](https://docs.google.com/spreadsheets/d/11EXMjMM6REThektjCMGNYPTmkWEE8509rCwAYaZ37qM/edit?usp=sharing) |
 | 9 | Causality 2 | Compare the stability of trees with corr splits and the ones with causal splits. | TBD |
 
 ---

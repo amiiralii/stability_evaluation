@@ -104,20 +104,14 @@ def hcond(xx, colx, yy, coly):
 
   ## [FIX] Guard: x and y may differ in length after missing-value removal.
   ## Use min length to avoid zip truncation silently hiding data.
-  n = min(len(x), len(y))
-  if n == 0:
-    return 0.0
-
-  b = defaultdict(list)
-  for a, bi in zip(x, y):
-    b[bi].append(a)
-
+  
+  b = defaultdict(list); [b[bi].append(a) for a, bi in zip(x, y)]
+  n = len(y)
   return sum(
     (len(v) / n) * (-sum((c / len(v)) * log(c / len(v), 2)
     for c in Counter(v).values())) for v in b.values())
 
-
-def micond(x, y, z):
+def micond(x, y, z, eps=1e-3):
   """Conditional mutual information I(X;Y|Z) = Σ_z p(z) · I(X;Y|Z=z).
   Used to detect confounders: if I(X;Y|Z) < CONFOUND_EPS, then Z explains away the X↔Y link."""
   b = defaultdict(lambda: ([], []))
@@ -144,7 +138,7 @@ def micond(x, y, z):
 ## [CHANGED] Rewrote causal_ok to use the corrected disc2(col, values) signature
 ## instead of the old disc2(values, mu, sd, q) signature which didn't match any
 ## definition of disc2. Also cleaned up print statements.
-def causal_ok(col, d2hs, rows, Zs=None):
+def causal_ok(col, d2hs, rows, Zs=None, eps=1e-3,q=5,m=1e-6):
   """Test whether column `col` has a genuine causal relationship with the target (d2h).
   Three-stage filter:
     1. Relevance:  I(X;Y) > MI_RELEVANCE_EPS
@@ -182,11 +176,11 @@ def causal_ok(col, d2hs, rows, Zs=None):
     print(f"  [{col.txt}] MI={mi_xy:.3f}, H(X|Y)={hcond_xy:.3f}, H(Y|X)={hcond_yx:.3f}")
 
   # Stage 1: Relevance
-  if mi_xy <= MI_RELEVANCE_EPS:
+  if mi_xy <= eps:
     return False
 
   # Stage 2: Causal direction — X should explain Y, not the reverse
-  if hcond_xy > DIRECTION_EPS + hcond_yx:
+  if hcond_xy > eps + hcond_yx:
     return False
 
   # Stage 3: Confounding — association must survive conditioning on every Z
@@ -196,7 +190,7 @@ def causal_ok(col, d2hs, rows, Zs=None):
       z = disc2(Z, z_raw)                      ## [FIX] correct disc2 signature
       ## Align lengths
       m = min(len(x), len(y), len(z))
-      if micond(x[:m], y[:m], z[:m]) <= CONFOUND_EPS:
+      if micond(x[:m], y[:m], z[:m], eps) <= eps:
         return False
 
   return True
@@ -351,8 +345,6 @@ def causalTreeSelects(col, row: Row, op: str, at: int, y: Atom) -> bool:
   if op == "<=": return disc(col, x) <= y
   if op == "==": return disc(col, x) == y
   if op == ">":  return disc(col, x) > y
-  ## [NEW] Fallback for unknown operators — default to not selecting.
-  return False
 
 
 ## [CHANGED] Removed depth/max_depth parameters that were added earlier.
